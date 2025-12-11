@@ -1,0 +1,9 @@
+we're on ubuntu 
+I'm trying to make an application that will teach the user new tmux controls
+basically like, AI / llm / claude powered
+takes their tmux config as input
+then claude looks online for new configurations / controls they can try
+it then takes them into a containerized environment where they can try these controls in conjunction with their current config
+if they don't like the new controls, they can just throw them out (and since it's containeried, this can be the default)
+and if they do like the new controls, claude can integrate them into the current environment
+I'd prefer the way the controls are learned to be like a mini challenge / showing the suggested keybinds directly (which can also be based on the user's existing config, e.g. if I have alt + hjkl for window navigation, could do something near those for a similar navigation command, etc)
