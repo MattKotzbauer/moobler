@@ -1,6 +1,9 @@
 """Screen for the containerized tmux sandbox."""
 
 import asyncio
+import os
+import shutil
+import subprocess
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -77,6 +80,7 @@ class SandboxScreen(Screen):
         super().__init__(*args, **kwargs)
         self._container_manager = ContainerManager()
         self._keybind_to_try = None
+        self._challenge = None
 
     def action_press_button(self) -> None:
         """Press the focused button."""
@@ -162,6 +166,53 @@ class SandboxScreen(Screen):
             self.query_one("#active-keybinds", Static).update(keybind_text)
             self._log(f"Ready to try: {keybind_info['keybind']} -> {keybind_info['command']}")
 
+            # Generate a challenge for this keybind
+            self.run_worker(self._generate_challenge())
+
+    async def _generate_challenge(self) -> None:
+        """Generate an AI challenge for the current keybind."""
+        if not self._keybind_to_try:
+            return
+
+        try:
+            from ...ai.client import ClaudeClient
+            client = ClaudeClient()
+
+            self._log("Generating practice challenge...")
+
+            challenge = await client.generate_challenge(
+                keybind=self._keybind_to_try["keybind"],
+                command=self._keybind_to_try["command"],
+                difficulty="beginner",
+            )
+
+            self._challenge = challenge
+
+            # Display the challenge
+            if challenge and "objective" in challenge:
+                self._log("")
+                self._log("=" * 50)
+                self._log("CHALLENGE")
+                self._log("=" * 50)
+                self._log(f"Objective: {challenge.get('objective', 'Practice the keybind')}")
+                if challenge.get("setup"):
+                    self._log(f"Setup: {challenge.get('setup')}")
+                if challenge.get("hint"):
+                    self._log(f"Hint: {challenge.get('hint')}")
+                self._log("=" * 50)
+            else:
+                self._log("Challenge ready - practice the keybind!")
+
+        except ValueError:
+            # API key not set - use simple fallback challenge
+            self._challenge = {
+                "objective": f"Practice using {self._keybind_to_try['keybind']}",
+                "hint": f"This keybind executes: {self._keybind_to_try['command']}",
+            }
+            self._log("Practice the keybind in the sandbox!")
+        except Exception as e:
+            self._log(f"Could not generate challenge: {e}")
+
     def _update_status(self, status: str) -> None:
         """Update the container status display."""
         self.query_one("#container-status", Static).update(status)
@@ -186,12 +237,92 @@ class SandboxScreen(Screen):
         else:
             return f"bind {keybind} {command}"
 
+    def _build_sandbox_script(self, user_config: str | None, test_bindings: str) -> str:
+        """Build a shell script that sets up and runs the sandbox."""
+        # Build challenge display
+        challenge_display = ""
+        if self._keybind_to_try:
+            kb = self._keybind_to_try
+            if self._challenge and "objective" in self._challenge:
+                obj = self._challenge.get("objective", "").replace("'", "'\\''")
+                hint = self._challenge.get("hint", "").replace("'", "'\\''")
+                challenge_display = f'''
+echo "=== CHALLENGE ==="
+echo "Keybind: {kb["keybind"]}"
+echo "Objective: {obj}"
+echo "Hint: {hint}"
+echo "=================="
+echo ""
+'''
+            else:
+                challenge_display = f'''
+echo "=== CHALLENGE ==="
+echo "Try: {kb["keybind"]}"
+echo "Command: {kb["command"]}"
+echo "=================="
+echo ""
+'''
+
+        # The script will:
+        # 1. Start the container
+        # 2. Show challenge info
+        # 3. Attach to tmux in container
+        # 4. Clean up container on exit
+        script = f'''#!/bin/bash
+{challenge_display}
+echo "Starting sandbox container..."
+
+# Start container
+docker run -d --name tmux-sandbox --rm \\
+    -e TERM=xterm-256color \\
+    tmux-learn-sandbox \\
+    sleep infinity
+
+# Wait for container to be ready
+sleep 0.5
+
+# Attach to tmux inside container
+docker exec -it tmux-sandbox tmux new-session -A -s sandbox
+
+# Clean up
+echo ""
+echo "Stopping sandbox..."
+docker stop tmux-sandbox 2>/dev/null || true
+echo "Done! Press Enter to close..."
+read
+'''
+        return script
+
+    def _launch_sandbox_kitty(self, user_config: str | None, test_bindings: str) -> bool:
+        """Launch sandbox in a new Kitty window with everything self-contained."""
+        if not shutil.which("kitty"):
+            return False
+
+        try:
+            script = self._build_sandbox_script(user_config, test_bindings)
+
+            # Launch kitty with the script
+            subprocess.Popen([
+                "kitty", "--hold", "--title", "tmux-learn sandbox",
+                "bash", "-c", script
+            ])
+
+            self._log("")
+            self._log("Opened sandbox in new Kitty window")
+            self._log("Switch to that window to practice")
+            self._log("Exit tmux (type 'exit') when done - container auto-cleans")
+            return True
+
+        except Exception as e:
+            self._log(f"Could not launch Kitty: {e}")
+            return False
+
     async def _start_sandbox(self) -> None:
         """Start the Docker sandbox."""
-        self._update_status("Starting container...")
+        self._update_status("Launching sandbox...")
         self._log("")
         self._log("=" * 50)
-        self._log("Starting tmux sandbox...")
+        self._log("Launching tmux sandbox...")
         self._log("=" * 50)
 
         # Get user's current config
@@ -199,7 +330,7 @@ class SandboxScreen(Screen):
         tmux_conf = Path.home() / ".tmux.conf"
         if tmux_conf.exists():
             user_config = tmux_conf.read_text()
-            self._log(f"Loaded your config from {tmux_conf}")
+            self._log(f"Will use your config from {tmux_conf}")
 
         # Generate test bindings
         test_bindings = self._generate_test_config()
@@ -233,33 +364,33 @@ class SandboxScreen(Screen):
                     self._update_status("Error: Failed to build image")
                     return
 
-            # Start container
-            self._log("Starting container...")
-            container_id = await self._container_manager.start(
-                user_config=user_config,
-                test_bindings=test_bindings,
-            )
-
-            self._update_status(f"Running (ID: {container_id[:12]})")
-            self._log("")
-            self._log("Container started successfully!")
-            self._log("")
-            self._log("=" * 50)
-            self._log("TO CONNECT TO THE SANDBOX:")
-            self._log("=" * 50)
-            self._log("")
-            self._log("  " + self._container_manager.get_attach_command())
-            self._log("")
-            if self._keybind_to_try:
-                self._log(f"Try your new keybind: {self._keybind_to_try['keybind']}")
-                self._log(f"It should: {self._keybind_to_try['description']}")
-            self._log("")
-            self._log("Changes are ephemeral - exit sandbox to discard.")
-            self._log("Press 'x' or click Stop to end the sandbox.")
+            # Launch sandbox in Kitty (self-contained - starts container, attaches, cleans up)
+            if self._launch_sandbox_kitty(user_config, test_bindings):
+                self._update_status("Sandbox launched in Kitty")
+                if self._keybind_to_try:
+                    self._log("")
+                    self._log(f"Try your new keybind: {self._keybind_to_try['keybind']}")
+                    self._log(f"It should: {self._keybind_to_try['description']}")
+                self._log("")
+                self._log("The Kitty window handles everything:")
+                self._log("  - Container starts automatically")
+                self._log("  - Exit tmux to stop and clean up")
+            else:
+                # Fallback: show manual instructions
+                self._log("")
+                self._log("Could not launch Kitty. Manual steps:")
+                self._log("")
+                self._log("1. Open a new terminal")
+                self._log("2. Run: docker run -it --rm --name tmux-sandbox tmux-learn-sandbox")
+                self._log("")
+                if self._keybind_to_try:
+                    self._log(f"Try your new keybind: {self._keybind_to_try['keybind']}")
+                    self._log(f"It should: {self._keybind_to_try['description']}")
+                self._update_status("Manual launch required")
 
         except Exception as e:
             self._log(f"ERROR: {e}")
-            self._update_status("Error starting container")
+            self._update_status("Error starting sandbox")
 
     async def _stop_sandbox(self) -> None:
         """Stop the Docker sandbox."""
@@ -268,12 +399,25 @@ class SandboxScreen(Screen):
         self._log("Stopping sandbox...")
 
         try:
+            # Try to stop via manager first
             await self._container_manager.stop()
+            self._log("Container stopped.")
+        except Exception:
+            pass
+
+        # Also try direct docker stop in case it was started by Kitty script
+        try:
+            subprocess.run(
+                ["docker", "stop", "tmux-sandbox"],
+                capture_output=True,
+                timeout=5
+            )
             self._log("Container stopped and removed.")
-            self._update_status("Not running")
-        except Exception as e:
-            self._log(f"ERROR stopping: {e}")
-            self._update_status("Error")
+        except Exception:
+            pass
+
+        self._update_status("Not running")
+        self._log("Ready to start a new sandbox.")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button presses."""

@@ -98,6 +98,7 @@ class DiscoverScreen(Screen):
         super().__init__(*args, **kwargs)
         self._selected_card_index = 0
         self._in_suggestions = False
+        self._current_category = "navigation"
 
     def action_next_suggestion(self) -> None:
         """Move to next suggestion card or category item."""
@@ -386,6 +387,7 @@ class DiscoverScreen(Screen):
             "cat-productivity": "productivity",
         }
         category = category_map.get(item_id, "navigation")
+        self._current_category = category
         self._load_suggestions(category)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
@@ -393,12 +395,84 @@ class DiscoverScreen(Screen):
         if event.button.id == "btn-back":
             self.app.switch_screen("home")
         elif event.button.id == "btn-search":
-            self.app.notify(
-                "AI web search coming soon!",
-                title="Search",
-            )
+            self.run_worker(self._fetch_ai_suggestions())
         elif event.button.id == "btn-refresh":
+            self._load_suggestions(self._current_category)
             self.app.notify(
-                "Refreshing suggestions...",
+                "Suggestions refreshed",
                 title="Refresh",
             )
+
+    async def _fetch_ai_suggestions(self) -> None:
+        """Fetch AI-powered suggestions from Claude."""
+        loading = self.query_one("#loading", LoadingIndicator)
+        loading.display = True
+
+        try:
+            from ...ai.client import ClaudeClient
+            client = ClaudeClient()
+
+            # Get user's style and existing bindings
+            style = {}
+            existing = []
+            if self._user_config:
+                style = self._user_config.style.model_dump()
+                existing = [kb.key_combo for kb in self._user_config.keybindings]
+
+            # Get current category
+            category = getattr(self, "_current_category", "navigation")
+
+            self.app.notify("Asking Claude for suggestions...", title="AI Search")
+
+            # Call Claude API
+            suggestions = await client.suggest_keybinds(
+                user_style=style,
+                existing_bindings=existing,
+                category=category,
+            )
+
+            if not suggestions:
+                self.app.notify("No suggestions returned", title="AI Search")
+                return
+
+            # Add AI suggestions to the display
+            container = self.query_one("#suggestion-list", ScrollableContainer)
+
+            for s in suggestions:
+                keybind = s.get("keybind", "")
+                description = s.get("description", "")
+                command = s.get("command", "")
+                reasoning = s.get("reasoning", "")
+
+                # Skip if missing required fields
+                if not keybind or not command:
+                    continue
+
+                # Add reasoning to description if available
+                full_desc = f"[AI] {description}"
+                if reasoning:
+                    full_desc += f" ({reasoning})"
+
+                card = KeybindCard(
+                    keybind=keybind,
+                    description=full_desc,
+                    command=command,
+                    category=category,
+                )
+                container.mount(card)
+
+            self.app.notify(f"Added {len(suggestions)} AI suggestions!", title="AI Search")
+
+        except ValueError as e:
+            # API key not set
+            self.app.notify(
+                "Set ANTHROPIC_API_KEY to use AI suggestions",
+                title="API Key Required",
+            )
+        except Exception as e:
+            self.app.notify(
+                f"Error: {str(e)[:50]}",
+                title="AI Search Failed",
+            )
+        finally:
+            loading.display = False
