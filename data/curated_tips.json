@@ -1,0 +1,26 @@
+[
+  {
+    "id": "nav-pane-hjkl",
+    "category": "navigation",
+    "name": "Vim-style Pane Navigation",
+    "description": "Navigate between panes using h/j/k/l keys",
+    "keybind": "prefix + h/j/k/l",
+    "command": "bind h select-pane -L; bind j select-pane -D; bind k select-pane -U; bind l select-pane -R",
+    "difficulty": "beginner",
+    "tags": ["vim", "navigation", "panes"],
+    "vim_style": true,
+    "requires_prefix": true
+  },
+  {
+    "id": "nav-pane-meta-hjkl",
+    "category": "navigation",
+    "name": "Alt+hjkl Pane Navigation",
+    "description": "Navigate panes instantly with Alt+h/j/k/l - no prefix needed",
+    "keybind": "M-h/j/k/l",
+    "command": "bind -n M-h select-pane -L; bind -n M-j select-pane -D; bind -n M-k select-pane -U; bind -n M-l select-pane -R",
+    "difficulty": "beginner",
+    "tags": ["vim", "navigation", "panes", "no-prefix"],
+    "vim_style": true,
+    "requires_prefix": false
+  }
+]
