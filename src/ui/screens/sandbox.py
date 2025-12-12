@@ -335,11 +335,12 @@ docker rm -f tmux-sandbox 2>/dev/null
 
 echo "Starting sandbox container..."
 
-# Start container and run tmux directly
+# Start container with simple tmux (bypass complex entrypoint)
 docker run -it --rm --name tmux-sandbox \\
     -e TERM=xterm-256color \\
+    --entrypoint /bin/bash \\
     tmux-learn-sandbox \\
-    tmux new-session -s sandbox
+    -c "tmux new-session -s sandbox"
 
 echo ""
 echo "Sandbox exited. Press Enter to close..."

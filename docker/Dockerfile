@@ -26,9 +26,9 @@ RUN mkdir -p /home/learner/practice && \
     mkdir -p /home/learner/practice/subdir && \
     echo "Nested file" > /home/learner/practice/subdir/nested.txt
 
-# Copy entrypoint script
+# Copy entrypoint script (must be readable by all since user is learner)
 COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
 
 # Set ownership
 RUN chown -R learner:learner /home/learner
