@@ -324,6 +324,7 @@ echo ""
         # Build volume mounts for config
         mounts = ""
         setup_cmd = ""
+        import tempfile
 
         # Mount user's tmux.conf if it exists
         tmux_conf_path = Path.home() / ".tmux.conf"
@@ -334,7 +335,6 @@ echo ""
         # Add test bindings if provided
         if test_bindings:
             # Write test bindings to a temp file
-            import tempfile
             self._test_bindings_file = tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False)
             self._test_bindings_file.write(test_bindings)
             self._test_bindings_file.close()
@@ -343,6 +343,36 @@ echo ""
                 setup_cmd += 'echo "" >> ~/.tmux.conf && echo "# === NEW KEYBINDS TO TRY ===" >> ~/.tmux.conf && cat /tmp/test.conf >> ~/.tmux.conf && '
             else:
                 setup_cmd += "cp /tmp/test.conf ~/.tmux.conf && "
+
+        # Create challenge info file to mount
+        challenge_text = ""
+        if self._keybind_group:
+            group = self._keybind_group
+            challenge_text = f"=== PRACTICE: {group.name} ===\n{group.description}\n\nKeybinds to try:\n"
+            for kb in group.keybinds:
+                keybind = kb.get("keybind", "")
+                desc = kb.get("description", "")
+                cmd = kb.get("command", "")
+                # Explain the keybind
+                if keybind.startswith("M-"):
+                    key_explain = f"Alt+{keybind[2:]}"
+                else:
+                    key_explain = f"prefix then {keybind}"
+                challenge_text += f"\n  {keybind} ({key_explain})\n    {desc}\n    Command: {cmd}\n"
+            challenge_text += f"\n{group.reasoning}\n"
+        elif self._keybind_to_try:
+            kb = self._keybind_to_try
+            challenge_text = f"=== PRACTICE ===\nKeybind: {kb['keybind']}\nCommand: {kb['command']}\nDescription: {kb['description']}\n"
+            if self._challenge:
+                challenge_text += f"\nObjective: {self._challenge.get('objective', '')}\nHint: {self._challenge.get('hint', '')}\n"
+
+        if challenge_text:
+            self._challenge_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+            self._challenge_file.write(challenge_text)
+            self._challenge_file.close()
+            mounts += f'-v "{self._challenge_file.name}:/home/learner/CHALLENGE.txt:ro" '
+            # Show challenge on tmux startup
+            setup_cmd += 'cat ~/CHALLENGE.txt && echo "Press Enter to start tmux..." && read && '
 
         # The script will:
         # 1. Clean up any stale container

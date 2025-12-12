@@ -109,6 +109,13 @@ IMPORTANT: Group related keybindings together. For example:
 - If suggesting navigation, include related navigation bindings
 - Each group should be something the user can practice together in one session
 
+KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
+- For prefix bindings: just the key after prefix, e.g. "r" (user presses prefix then r)
+- For no-prefix bindings: include the modifier, e.g. "M-h" (Alt+h with no prefix)
+- NEVER write "prefix X" - that's documentation notation, not tmux syntax
+- Examples of CORRECT format: "M-h", "M-J", "r", "C-s", "|", "-"
+- Examples of WRONG format: "prefix r", "prefix C-f", "Prefix+r"
+
 Respond in JSON format with this structure:
 {
   "groups": [
