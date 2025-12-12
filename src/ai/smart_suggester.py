@@ -98,6 +98,12 @@ Your job is to:
    - Are genuinely useful
    - Are grouped logically (e.g., all resize bindings together)
 
+IMPORTANT CONSTRAINTS:
+- NEVER suggest C-c, C-d, C-z, C-s, C-q - these conflict with terminal control signals
+- NEVER suggest C-l (clears screen) or C-a (often used as tmux prefix or readline)
+- Prefer Alt/Meta bindings (M-x) for no-prefix shortcuts as they rarely conflict
+- If suggesting prefix bindings, use memorable letters that aren't already common defaults
+
 IMPORTANT: Group related keybindings together. For example:
 - If suggesting resize bindings, include all 4 directions (up/down/left/right)
 - If suggesting navigation, include related navigation bindings

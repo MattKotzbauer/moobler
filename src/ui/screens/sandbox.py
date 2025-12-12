@@ -321,9 +321,32 @@ echo "=================="
 echo ""
 '''
 
+        # Build volume mounts for config
+        mounts = ""
+        setup_cmd = ""
+
+        # Mount user's tmux.conf if it exists
+        tmux_conf_path = Path.home() / ".tmux.conf"
+        if tmux_conf_path.exists():
+            mounts += f'-v "{tmux_conf_path}:/tmp/user.tmux.conf:ro" '
+            setup_cmd += "cp /tmp/user.tmux.conf ~/.tmux.conf && "
+
+        # Add test bindings if provided
+        if test_bindings:
+            # Write test bindings to a temp file
+            import tempfile
+            self._test_bindings_file = tempfile.NamedTemporaryFile(mode='w', suffix='.conf', delete=False)
+            self._test_bindings_file.write(test_bindings)
+            self._test_bindings_file.close()
+            mounts += f'-v "{self._test_bindings_file.name}:/tmp/test.conf:ro" '
+            if tmux_conf_path.exists():
+                setup_cmd += 'echo "" >> ~/.tmux.conf && echo "# === NEW KEYBINDS TO TRY ===" >> ~/.tmux.conf && cat /tmp/test.conf >> ~/.tmux.conf && '
+            else:
+                setup_cmd += "cp /tmp/test.conf ~/.tmux.conf && "
+
         # The script will:
         # 1. Clean up any stale container
-        # 2. Start the container
+        # 2. Start the container with user's config mounted
         # 3. Show challenge info
         # 4. Attach to tmux in container
         # 5. Clean up container on exit
@@ -334,13 +357,15 @@ echo ""
 docker rm -f tmux-sandbox 2>/dev/null
 
 echo "Starting sandbox container..."
+echo "(Loading your tmux config + new keybinds)"
 
-# Start container with simple tmux (bypass complex entrypoint)
+# Start container with user's config mounted
 docker run -it --rm --name tmux-sandbox \\
     -e TERM=xterm-256color \\
+    {mounts}\\
     --entrypoint /bin/bash \\
     tmux-learn-sandbox \\
-    -c "tmux new-session -s sandbox"
+    -c '{setup_cmd}tmux new-session -s sandbox'
 
 echo ""
 echo "Sandbox exited. Press Enter to close..."
