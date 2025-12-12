@@ -78,6 +78,19 @@ class DiscoverScreen(Screen):
         border: solid $success;
         background: $surface-lighten-1;
     }
+
+    .group-header {
+        background: $primary-darken-2;
+        padding: 1;
+        margin: 1 0 0 0;
+        border: solid $primary;
+    }
+
+    .group-footer {
+        padding: 0 1;
+        margin: 0 0 1 0;
+        color: $text-muted;
+    }
     """
 
     BINDINGS = [
@@ -189,16 +202,26 @@ class DiscoverScreen(Screen):
             # TODO: Actually add to config using ConfigMerger
 
     def _try_selected_keybind(self) -> None:
-        """Launch sandbox with the selected keybind."""
+        """Launch sandbox with the selected keybind or its group."""
         cards = list(self.query(KeybindCard))
         if cards and 0 <= self._selected_card_index < len(cards):
             card = cards[self._selected_card_index]
-            # Store the keybind to try in the app
-            self.app._keybind_to_try = {
-                "keybind": card.keybind,
-                "command": card.command,
-                "description": card.description,
-            }
+
+            # Check if this card has a group (AI suggestions)
+            group = getattr(card, "_group", None)
+            if group:
+                # Try the whole group together
+                self.app._keybind_group = group
+                self.app._keybind_to_try = None
+            else:
+                # Single keybind
+                self.app._keybind_to_try = {
+                    "keybind": card.keybind,
+                    "command": card.command,
+                    "description": card.description,
+                }
+                self.app._keybind_group = None
+
             self.app.switch_screen("sandbox")
 
     def action_scroll_down(self) -> None:
@@ -404,74 +427,81 @@ class DiscoverScreen(Screen):
             )
 
     async def _fetch_ai_suggestions(self) -> None:
-        """Fetch AI-powered suggestions from Claude."""
+        """Fetch AI-powered suggestions from Claude with GitHub data."""
         loading = self.query_one("#loading", LoadingIndicator)
         loading.display = True
 
         try:
-            from ...ai.client import ClaudeClient
-            client = ClaudeClient()
+            from ...ai.smart_suggester import SmartSuggester
 
-            # Get user's style and existing bindings
-            style = {}
-            existing = []
-            if self._user_config:
-                style = self._user_config.style.model_dump()
-                existing = [kb.key_combo for kb in self._user_config.keybindings]
-
-            # Get current category
+            suggester = SmartSuggester()
             category = getattr(self, "_current_category", "navigation")
 
-            self.app.notify("Asking Claude for suggestions...", title="AI Search")
+            self.app.notify("Analyzing your config + GitHub configs...", title="AI Search")
 
-            # Call Claude API
-            suggestions = await client.suggest_keybinds(
-                user_style=style,
-                existing_bindings=existing,
-                category=category,
-            )
+            # Get grouped suggestions from Claude
+            groups = await suggester.get_smart_suggestions(category=category)
 
-            if not suggestions:
+            if not groups:
                 self.app.notify("No suggestions returned", title="AI Search")
                 return
 
-            # Add AI suggestions to the display
+            # Store groups for later use (sandbox, add to config)
+            self._suggestion_groups = groups
+
+            # Clear and display grouped suggestions
             container = self.query_one("#suggestion-list", ScrollableContainer)
+            container.remove_children()
 
-            for s in suggestions:
-                keybind = s.get("keybind", "")
-                description = s.get("description", "")
-                command = s.get("command", "")
-                reasoning = s.get("reasoning", "")
-
-                # Skip if missing required fields
-                if not keybind or not command:
-                    continue
-
-                # Add reasoning to description if available
-                full_desc = f"[AI] {description}"
-                if reasoning:
-                    full_desc += f" ({reasoning})"
-
-                card = KeybindCard(
-                    keybind=keybind,
-                    description=full_desc,
-                    command=command,
-                    category=category,
+            total_keybinds = 0
+            for group in groups:
+                # Add group header
+                header = Static(
+                    f"[bold]{group.name}[/bold]\n{group.description}",
+                    classes="group-header",
                 )
-                container.mount(card)
+                container.mount(header)
 
-            self.app.notify(f"Added {len(suggestions)} AI suggestions!", title="AI Search")
+                # Add keybinds in this group
+                for kb in group.keybinds:
+                    keybind = kb.get("keybind", "")
+                    command = kb.get("command", "")
+                    description = kb.get("description", "")
 
-        except ValueError as e:
-            # API key not set
+                    if not keybind or not command:
+                        continue
+
+                    card = KeybindCard(
+                        keybind=keybind,
+                        description=f"[AI] {description}",
+                        command=command,
+                        category=category,
+                    )
+                    # Store group reference on card for grouped sandbox/add
+                    card._group = group
+                    container.mount(card)
+                    total_keybinds += 1
+
+                # Add "Try Group" / "Add Group" buttons
+                group_actions = Static(
+                    f"[dim]Group: {len(group.keybinds)} keybinds - {group.reasoning[:60]}...[/dim]",
+                    classes="group-footer",
+                )
+                container.mount(group_actions)
+
+            self.app.notify(
+                f"Found {len(groups)} groups with {total_keybinds} keybinds!",
+                title="AI Search",
+            )
+
+        except ValueError:
             self.app.notify(
                 "Set ANTHROPIC_API_KEY to use AI suggestions",
                 title="API Key Required",
             )
         except Exception as e:
             self.app.notify(
-                f"Error: {str(e)[:50]}",
+                f"Error: {str(e)[:80]}",
                 title="AI Search Failed",
             )
         finally:

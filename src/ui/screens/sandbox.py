@@ -80,6 +80,7 @@ class SandboxScreen(Screen):
         super().__init__(*args, **kwargs)
         self._container_manager = ContainerManager()
         self._keybind_to_try = None
+        self._keybind_group = None  # Group of related keybinds
         self._challenge = None
 
     def action_press_button(self) -> None:
@@ -154,10 +155,32 @@ class SandboxScreen(Screen):
         self._check_for_keybind()
 
     def _check_for_keybind(self) -> None:
-        """Check if there's a keybind to try from the discover screen."""
+        """Check if there's a keybind or group to try from the discover screen."""
+        # Check for group first
+        keybind_group = getattr(self.app, "_keybind_group", None)
+        if keybind_group:
+            self._keybind_group = keybind_group
+            self._keybind_to_try = None  # Using group mode
+
+            # Display group info
+            lines = [f"Group: {keybind_group.name}", f"{keybind_group.description}", ""]
+            for kb in keybind_group.keybinds:
+                lines.append(f"  {kb.get('keybind', '')}: {kb.get('description', '')}")
+
+            self.query_one("#active-keybinds", Static).update("\n".join(lines))
+            self._log(f"Ready to try group: {keybind_group.name}")
+            self._log(f"{len(keybind_group.keybinds)} keybinds to practice together")
+
+            # Generate challenge for the group
+            self.run_worker(self._generate_challenge())
+            return
+
+        # Check for single keybind
         keybind_info = getattr(self.app, "_keybind_to_try", None)
         if keybind_info:
             self._keybind_to_try = keybind_info
+            self._keybind_group = None
+
             keybind_text = (
                 f"Keybind: {keybind_info['keybind']}\n"
                 f"Command: {keybind_info['command']}\n"
@@ -223,7 +246,24 @@ class SandboxScreen(Screen):
         log.write_line(message)
 
     def _generate_test_config(self) -> str:
-        """Generate tmux config lines for the keybind being tested."""
+        """Generate tmux config lines for the keybind(s) being tested."""
+        lines = []
+
+        # Handle group of keybinds
+        if self._keybind_group:
+            for kb in self._keybind_group.keybinds:
+                keybind = kb.get("keybind", "")
+                command = kb.get("command", "")
+                if not keybind or not command:
+                    continue
+
+                if keybind.startswith("M-") or keybind.startswith("C-"):
+                    lines.append(f"bind -n {keybind} {command}")
+                else:
+                    lines.append(f"bind {keybind} {command}")
+            return "\n".join(lines)
+
+        # Handle single keybind
         if not self._keybind_to_try:
             return ""
 
@@ -241,7 +281,25 @@ class SandboxScreen(Screen):
         """Build a shell script that sets up and runs the sandbox."""
         # Build challenge display
         challenge_display = ""
-        if self._keybind_to_try:
+
+        # Handle group of keybinds
+        if self._keybind_group:
+            group = self._keybind_group
+            keybind_lines = ""
+            for kb in group.keybinds:
+                keybind_lines += f'echo "  {kb.get("keybind", "")}: {kb.get("description", "")}"\n'
+
+            challenge_display = f'''
+echo "=== PRACTICE GROUP ==="
+echo "{group.name}"
+echo "{group.description}"
+echo ""
+echo "Keybinds to try:"
+{keybind_lines}
+echo "======================"
+echo ""
+'''
+        elif self._keybind_to_try:
             kb = self._keybind_to_try
             if self._challenge and "objective" in self._challenge:
                 obj = self._challenge.get("objective", "").replace("'", "'\\''")
@@ -428,14 +486,72 @@ read
         elif event.button.id == "btn-stop":
             self.run_worker(self._stop_sandbox())
         elif event.button.id == "btn-apply":
-            if self._keybind_to_try:
-                self.app.notify(
-                    f"Adding {self._keybind_to_try['keybind']} to your config...",
-                    title="Apply Changes",
+            self.run_worker(self._apply_to_config())
+
+    async def _apply_to_config(self) -> None:
+        """Add keybind(s) to user's tmux.conf."""
+        # Handle group
+        if self._keybind_group:
+            try:
+                from ...ai.smart_suggester import SmartSuggester
+                suggester = SmartSuggester()
+
+                success, msg = await suggester.add_group_to_config(self._keybind_group)
+
+                if success:
+                    self._log("")
+                    self._log("=" * 50)
+                    self._log("ADDED TO CONFIG")
+                    self._log("=" * 50)
+                    self._log(msg)
+                    self._log("")
+                    self._log("Run 'tmux source ~/.tmux.conf' to reload")
+                    self.app.notify(msg, title="Config Updated")
+                else:
+                    self._log(f"Error: {msg}")
+                    self.app.notify(msg, title="Error")
+            except Exception as e:
+                self._log(f"Error adding to config: {e}")
+                self.app.notify(f"Error: {e}", title="Error")
+            return
+
+        # Handle single keybind
+        if self._keybind_to_try:
+            try:
+                from ...config.merger import ConfigMerger
+                merger = ConfigMerger()
+
+                kb = self._keybind_to_try
+                from ...config.models import BindingMode
+
+                # Determine binding mode
+                mode = BindingMode.ROOT if kb["keybind"].startswith("M-") else BindingMode.PREFIX
+
+                success, msg = merger.add_keybinding(
+                    keybind=kb["keybind"],
+                    command=kb["command"],
+                    description=kb.get("description", ""),
+                    mode=mode,
                 )
-                # TODO: Actually apply using ConfigMerger
-            else:
-                self.app.notify(
-                    "No keybind selected. Go to Discover (3) first.",
-                    title="No Keybind",
-                )
+
+                if success:
+                    self._log("")
+                    self._log("=" * 50)
+                    self._log("ADDED TO CONFIG")
+                    self._log("=" * 50)
+                    self._log(msg)
+                    self._log("")
+                    self._log("Run 'tmux source ~/.tmux.conf' to reload")
+                    self.app.notify(msg, title="Config Updated")
+                else:
+                    self._log(f"Error: {msg}")
+                    self.app.notify(msg, title="Error")
+            except Exception as e:
+                self._log(f"Error adding to config: {e}")
+                self.app.notify(f"Error: {e}", title="Error")
+            return
+
+        self.app.notify(
+            "No keybind selected. Go to Discover (3) first.",
+            title="No Keybind",
+        )
