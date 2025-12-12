@@ -322,31 +322,27 @@ echo ""
 '''
 
         # The script will:
-        # 1. Start the container
-        # 2. Show challenge info
-        # 3. Attach to tmux in container
-        # 4. Clean up container on exit
+        # 1. Clean up any stale container
+        # 2. Start the container
+        # 3. Show challenge info
+        # 4. Attach to tmux in container
+        # 5. Clean up container on exit
         script = f'''#!/bin/bash
 {challenge_display}
+
+# Clean up any stale container first
+docker rm -f tmux-sandbox 2>/dev/null
+
 echo "Starting sandbox container..."
 
-# Start container
-docker run -d --name tmux-sandbox --rm \\
+# Start container and run tmux directly
+docker run -it --rm --name tmux-sandbox \\
     -e TERM=xterm-256color \\
     tmux-learn-sandbox \\
-    sleep infinity
+    tmux new-session -s sandbox
 
-# Wait for container to be ready
-sleep 0.5
-
-# Attach to tmux inside container
-docker exec -it tmux-sandbox tmux new-session -A -s sandbox
-
-# Clean up
 echo ""
-echo "Stopping sandbox..."
-docker stop tmux-sandbox 2>/dev/null || true
-echo "Done! Press Enter to close..."
+echo "Sandbox exited. Press Enter to close..."
 read
 '''
         return script

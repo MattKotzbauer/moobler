@@ -124,6 +124,7 @@ class DiscoverScreen(Screen):
                 # Move to next
                 self._selected_card_index = min(self._selected_card_index + 1, len(cards) - 1)
                 cards[self._selected_card_index].add_class("-selected")
+                cards[self._selected_card_index].focus()
                 cards[self._selected_card_index].scroll_visible()
         else:
             # In categories list
@@ -144,6 +145,7 @@ class DiscoverScreen(Screen):
                 # Move to prev
                 self._selected_card_index = max(self._selected_card_index - 1, 0)
                 cards[self._selected_card_index].add_class("-selected")
+                cards[self._selected_card_index].focus()
                 cards[self._selected_card_index].scroll_visible()
         else:
             # In categories list
@@ -154,7 +156,16 @@ class DiscoverScreen(Screen):
                 pass
 
     def action_focus_categories(self) -> None:
-        """Switch focus to categories panel (h key)."""
+        """Switch focus to categories panel (h key) - only if not in card."""
+        if self._in_suggestions:
+            # If a card is focused, pass h to the card for button navigation
+            cards = list(self.query(KeybindCard))
+            if cards and 0 <= self._selected_card_index < len(cards):
+                card = cards[self._selected_card_index]
+                if card.has_focus:
+                    card.action_prev_action()
+                    return
+
         self._in_suggestions = False
         # Deselect any selected card
         for card in self.query(KeybindCard):
@@ -165,12 +176,22 @@ class DiscoverScreen(Screen):
             pass
 
     def action_focus_suggestions(self) -> None:
-        """Switch focus to suggestions panel (l key)."""
+        """Switch focus to suggestions panel (l key) - or navigate buttons."""
+        if self._in_suggestions:
+            # If a card is focused, pass l to the card for button navigation
+            cards = list(self.query(KeybindCard))
+            if cards and 0 <= self._selected_card_index < len(cards):
+                card = cards[self._selected_card_index]
+                if card.has_focus:
+                    card.action_next_action()
+                    return
+
         self._in_suggestions = True
         cards = list(self.query(KeybindCard))
         if cards:
             self._selected_card_index = 0
             cards[0].add_class("-selected")
+            cards[0].focus()
             cards[0].scroll_visible()
 
     def action_select_item(self) -> None:
