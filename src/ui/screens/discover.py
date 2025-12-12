@@ -63,31 +63,136 @@ class DiscoverScreen(Screen):
         text-style: bold;
         margin-bottom: 1;
     }
+
+    KeybindCard {
+        margin: 1 0;
+    }
+
+    KeybindCard.-selected {
+        border: solid $success;
+        background: $surface-lighten-1;
+    }
     """
 
     BINDINGS = [
-        # Vim bindings for this screen
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
+        # j/k navigate suggestions, h/l switch panels
+        Binding("j", "next_suggestion", "Next", show=False),
+        Binding("k", "prev_suggestion", "Prev", show=False),
+        Binding("h", "focus_categories", "Categories", show=False),
+        Binding("l", "focus_suggestions", "Suggestions", show=False),
+        Binding("enter", "select_item", "Select", show=False),
+        Binding("o", "select_item", "Open", show=False),
+        Binding("t", "try_selected", "Try It", show=False),
+        Binding("a", "add_selected", "Add", show=False),
         Binding("ctrl+d", "scroll_down", "Scroll Down", show=False),
         Binding("ctrl+u", "scroll_up", "Scroll Up", show=False),
     ]
 
-    def action_cursor_down(self) -> None:
-        """Move cursor down in focused list."""
-        focused = self.focused
-        if isinstance(focused, ListView):
-            focused.action_cursor_down()
-        else:
-            self.focus_next()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._selected_card_index = 0
+        self._in_suggestions = False
 
-    def action_cursor_up(self) -> None:
-        """Move cursor up in focused list."""
-        focused = self.focused
-        if isinstance(focused, ListView):
-            focused.action_cursor_up()
+    def action_next_suggestion(self) -> None:
+        """Move to next suggestion card or category item."""
+        if self._in_suggestions:
+            cards = list(self.query(KeybindCard))
+            if cards:
+                # Deselect current
+                if 0 <= self._selected_card_index < len(cards):
+                    cards[self._selected_card_index].remove_class("-selected")
+                # Move to next
+                self._selected_card_index = min(self._selected_card_index + 1, len(cards) - 1)
+                cards[self._selected_card_index].add_class("-selected")
+                cards[self._selected_card_index].scroll_visible()
         else:
-            self.focus_previous()
+            # In categories list
+            try:
+                cat_list = self.query_one("#category-list", ListView)
+                cat_list.action_cursor_down()
+            except Exception:
+                pass
+
+    def action_prev_suggestion(self) -> None:
+        """Move to previous suggestion card or category item."""
+        if self._in_suggestions:
+            cards = list(self.query(KeybindCard))
+            if cards:
+                # Deselect current
+                if 0 <= self._selected_card_index < len(cards):
+                    cards[self._selected_card_index].remove_class("-selected")
+                # Move to prev
+                self._selected_card_index = max(self._selected_card_index - 1, 0)
+                cards[self._selected_card_index].add_class("-selected")
+                cards[self._selected_card_index].scroll_visible()
+        else:
+            # In categories list
+            try:
+                cat_list = self.query_one("#category-list", ListView)
+                cat_list.action_cursor_up()
+            except Exception:
+                pass
+
+    def action_focus_categories(self) -> None:
+        """Switch focus to categories panel (h key)."""
+        self._in_suggestions = False
+        # Deselect any selected card
+        for card in self.query(KeybindCard):
+            card.remove_class("-selected")
+        try:
+            self.query_one("#category-list", ListView).focus()
+        except Exception:
+            pass
+
+    def action_focus_suggestions(self) -> None:
+        """Switch focus to suggestions panel (l key)."""
+        self._in_suggestions = True
+        cards = list(self.query(KeybindCard))
+        if cards:
+            self._selected_card_index = 0
+            cards[0].add_class("-selected")
+            cards[0].scroll_visible()
+
+    def action_select_item(self) -> None:
+        """Select current item (enter/o)."""
+        if self._in_suggestions:
+            # Try the selected keybind
+            self._try_selected_keybind()
+        else:
+            # Select category in list (triggers on_list_view_selected)
+            try:
+                cat_list = self.query_one("#category-list", ListView)
+                cat_list.action_select_cursor()
+            except Exception:
+                pass
+
+    def action_try_selected(self) -> None:
+        """Try the selected keybind in sandbox."""
+        self._try_selected_keybind()
+
+    def action_add_selected(self) -> None:
+        """Add the selected keybind to config."""
+        cards = list(self.query(KeybindCard))
+        if cards and 0 <= self._selected_card_index < len(cards):
+            card = cards[self._selected_card_index]
+            self.app.notify(
+                f"Adding '{card.keybind}' to your config...",
+                title="Add to Config",
+            )
+            # TODO: Actually add to config using ConfigMerger
+
+    def _try_selected_keybind(self) -> None:
+        """Launch sandbox with the selected keybind."""
+        cards = list(self.query(KeybindCard))
+        if cards and 0 <= self._selected_card_index < len(cards):
+            card = cards[self._selected_card_index]
+            # Store the keybind to try in the app
+            self.app._keybind_to_try = {
+                "keybind": card.keybind,
+                "command": card.command,
+                "description": card.description,
+            }
+            self.app.switch_screen("sandbox")
 
     def action_scroll_down(self) -> None:
         """Scroll down half page (vim Ctrl+d)."""
