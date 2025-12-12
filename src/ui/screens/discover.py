@@ -1,5 +1,8 @@
 """Screen for discovering new keybindings."""
 
+import asyncio
+from pathlib import Path
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
@@ -7,6 +10,9 @@ from textual.screen import Screen
 from textual.widgets import Button, Label, Static, LoadingIndicator, ListView, ListItem
 
 from ..widgets.keybind_card import KeybindCard
+from ...config import parse_tmux_config
+from ...ai.suggester import KeybindSuggester
+from ...discovery.curated import get_curated_tips
 
 
 class DiscoverScreen(Screen):
@@ -243,17 +249,98 @@ class DiscoverScreen(Screen):
     def on_mount(self) -> None:
         """Load initial suggestions."""
         self.query_one("#loading").display = False
+        self._user_config = None
+        self._suggester = KeybindSuggester()
+        self._load_user_config()
         self._load_suggestions("navigation")
 
+    def _load_user_config(self) -> None:
+        """Load user's tmux config for personalized suggestions."""
+        tmux_conf = Path.home() / ".tmux.conf"
+        if tmux_conf.exists():
+            self._user_config = parse_tmux_config(str(tmux_conf))
+
     def _load_suggestions(self, category: str) -> None:
-        """Load suggestions for a category."""
+        """Load suggestions for a category based on user's config."""
         container = self.query_one("#suggestion-list", ScrollableContainer)
         container.remove_children()
+        self._selected_card_index = 0
 
-        # Sample suggestions (will be replaced with AI-generated ones)
-        suggestions = self._get_sample_suggestions(category)
+        # Map UI categories to curated tip categories
+        category_map = {
+            "navigation": "navigation",
+            "window": "navigation",  # Window nav is in navigation
+            "pane": "panes",
+            "copy": "copy",
+            "session": "session",
+            "productivity": "productivity",
+        }
+        tip_category = category_map.get(category, "navigation")
 
-        for suggestion in suggestions:
+        suggestions = []
+
+        # Get curated tips for this category
+        curated = get_curated_tips(category=tip_category)
+
+        # If we have user config, filter and personalize suggestions
+        if self._user_config:
+            style = self._user_config.style
+
+            for tip in curated:
+                # Skip tips the user already has
+                existing_keys = [kb.key_combo for kb in self._user_config.keybindings]
+                if any(tip.keybind.replace("prefix + ", "") in k for k in existing_keys):
+                    continue
+
+                # Prioritize vim-style tips if user uses vim keys
+                if style.uses_vim_keys and tip.vim_style:
+                    suggestions.insert(0, {
+                        "keybind": tip.keybind,
+                        "description": f"[Matches your vim style] {tip.description}",
+                        "command": tip.command,
+                    })
+                # Prioritize no-prefix tips if user prefers Meta bindings
+                elif style.prefers_meta and not tip.requires_prefix:
+                    suggestions.insert(0, {
+                        "keybind": tip.keybind,
+                        "description": f"[Matches your Alt/Meta style] {tip.description}",
+                        "command": tip.command,
+                    })
+                else:
+                    suggestions.append({
+                        "keybind": tip.keybind,
+                        "description": tip.description,
+                        "command": tip.command,
+                    })
+
+            # Add style-specific suggestions based on user's patterns
+            if category == "navigation" and style.navigation_pattern == "M-hjkl":
+                # User has M-hjkl for navigation, suggest M-HJKL for resize
+                resize_suggestions = [
+                    {"keybind": "M-H", "description": "Resize pane left (complements your M-h)", "command": "resize-pane -L 5"},
+                    {"keybind": "M-J", "description": "Resize pane down (complements your M-j)", "command": "resize-pane -D 5"},
+                    {"keybind": "M-K", "description": "Resize pane up (complements your M-k)", "command": "resize-pane -U 5"},
+                    {"keybind": "M-L", "description": "Resize pane right (complements your M-l)", "command": "resize-pane -R 5"},
+                ]
+                # Only add if user doesn't have these
+                for s in resize_suggestions:
+                    if not self._user_config.has_binding(s["keybind"], mode=self._user_config.keybindings[0].mode if self._user_config.keybindings else None):
+                        suggestions.insert(0, s)
+        else:
+            # No user config, just show all curated tips
+            for tip in curated:
+                suggestions.append({
+                    "keybind": tip.keybind,
+                    "description": tip.description,
+                    "command": tip.command,
+                })
+
+        # If no suggestions, show fallback
+        if not suggestions:
+            suggestions = self._get_fallback_suggestions(category)
+
+        # Create cards
+        for suggestion in suggestions[:10]:  # Limit to 10
             card = KeybindCard(
                 keybind=suggestion["keybind"],
                 description=suggestion["description"],
@@ -262,104 +349,30 @@ class DiscoverScreen(Screen):
             )
             container.mount(card)
 
-    def _get_sample_suggestions(self, category: str) -> list[dict]:
-        """Get sample suggestions for demo purposes."""
-        samples = {
+    def _get_fallback_suggestions(self, category: str) -> list[dict]:
+        """Fallback suggestions if nothing else matches."""
+        fallbacks = {
             "navigation": [
-                {
-                    "keybind": "M-H",
-                    "description": "Resize pane left (pairs with M-h for select)",
-                    "command": "resize-pane -L 5",
-                },
-                {
-                    "keybind": "M-J",
-                    "description": "Resize pane down",
-                    "command": "resize-pane -D 5",
-                },
-                {
-                    "keybind": "M-K",
-                    "description": "Resize pane up",
-                    "command": "resize-pane -U 5",
-                },
-                {
-                    "keybind": "M-L",
-                    "description": "Resize pane right",
-                    "command": "resize-pane -R 5",
-                },
+                {"keybind": "M-h/j/k/l", "description": "Vim-style pane navigation without prefix", "command": "bind -n M-h select-pane -L"},
             ],
             "window": [
-                {
-                    "keybind": "M-1..9",
-                    "description": "Quick switch to window N without prefix",
-                    "command": "select-window -t :=N",
-                },
-                {
-                    "keybind": "M-Tab",
-                    "description": "Cycle through windows",
-                    "command": "next-window",
-                },
+                {"keybind": "M-1..9", "description": "Quick switch to window N", "command": "bind -n M-1 select-window -t 1"},
             ],
             "pane": [
-                {
-                    "keybind": "prefix + |",
-                    "description": "Split horizontally (visual mnemonic)",
-                    "command": "split-window -h",
-                },
-                {
-                    "keybind": "prefix + -",
-                    "description": "Split vertically (visual mnemonic)",
-                    "command": "split-window -v",
-                },
-                {
-                    "keybind": "prefix + z",
-                    "description": "Zoom/unzoom current pane",
-                    "command": "resize-pane -Z",
-                },
+                {"keybind": "prefix + |", "description": "Split horizontally (visual)", "command": "split-window -h"},
+                {"keybind": "prefix + -", "description": "Split vertically (visual)", "command": "split-window -v"},
             ],
             "copy": [
-                {
-                    "keybind": "prefix + [",
-                    "description": "Enter copy mode",
-                    "command": "copy-mode",
-                },
-                {
-                    "keybind": "v (in copy)",
-                    "description": "Begin selection (vim-style)",
-                    "command": "begin-selection",
-                },
-                {
-                    "keybind": "y (in copy)",
-                    "description": "Copy selection (vim-style)",
-                    "command": "copy-selection-and-cancel",
-                },
+                {"keybind": "prefix + [", "description": "Enter copy mode", "command": "copy-mode"},
             ],
             "session": [
-                {
-                    "keybind": "prefix + $",
-                    "description": "Rename current session",
-                    "command": "command-prompt -I '#S' 'rename-session %%'",
-                },
-                {
-                    "keybind": "prefix + s",
-                    "description": "Interactive session picker",
-                    "command": "choose-tree -s",
-                },
+                {"keybind": "prefix + s", "description": "Session picker", "command": "choose-tree -s"},
             ],
             "productivity": [
-                {
-                    "keybind": "prefix + r",
-                    "description": "Reload tmux config",
-                    "command": "source-file ~/.tmux.conf",
-                },
-                {
-                    "keybind": "prefix + ?",
-                    "description": "List all keybindings",
-                    "command": "list-keys",
-                },
+                {"keybind": "prefix + r", "description": "Reload config", "command": "source-file ~/.tmux.conf"},
             ],
         }
-
-        return samples.get(category, samples["navigation"])
+        return fallbacks.get(category, fallbacks["navigation"])
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         """Handle category selection."""

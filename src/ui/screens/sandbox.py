@@ -132,7 +132,7 @@ class SandboxScreen(Screen):
                 yield Static("Press 's' to start sandbox, then run the docker command below", id="instructions", markup=False)
 
                 yield Label("Log", classes="section-header")
-                yield Log(id="container-log", highlight=True, markup=False)
+                yield Log(id="container-log", highlight=True)
 
             with Horizontal(id="sandbox-actions"):
                 yield Button("Back", id="btn-back", variant="default")
