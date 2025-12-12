@@ -1,6 +1,7 @@
 """Screen for the containerized tmux sandbox."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static, Log
@@ -8,6 +9,79 @@ from textual.widgets import Button, Label, Static, Log
 
 class SandboxScreen(Screen):
     """Interactive sandbox for trying new keybindings in a container."""
+
+    CSS = """
+    #sandbox-area {
+        height: 1fr;
+    }
+
+    #container-status {
+        padding: 1;
+        background: $surface-darken-1;
+        border: solid $warning;
+        margin: 1 0;
+    }
+
+    #active-keybinds {
+        padding: 1;
+        background: $surface-darken-1;
+        margin: 1 0;
+    }
+
+    #container-log {
+        height: 1fr;
+        border: solid $primary;
+    }
+
+    #sandbox-actions {
+        height: auto;
+        padding: 1 0;
+    }
+
+    #sandbox-actions Button {
+        margin-right: 1;
+    }
+
+    .section-header {
+        text-style: bold;
+        margin: 1 0;
+    }
+    """
+
+    BINDINGS = [
+        Binding("j", "focus_next", "Down", show=False),
+        Binding("k", "focus_previous", "Up", show=False),
+        Binding("enter", "press_button", "Select", show=False),
+        Binding("o", "press_button", "Open", show=False),
+        Binding("ctrl+d", "scroll_log_down", "Scroll Down", show=False),
+        Binding("ctrl+u", "scroll_log_up", "Scroll Up", show=False),
+    ]
+
+    def action_press_button(self) -> None:
+        """Press the focused button."""
+        focused = self.focused
+        if isinstance(focused, Button):
+            focused.press()
+
+    def action_scroll_log_down(self) -> None:
+        """Scroll log down."""
+        try:
+            log = self.query_one("#container-log", Log)
+            log.scroll_down(animate=False)
+            log.scroll_down(animate=False)
+            log.scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_log_up(self) -> None:
+        """Scroll log up."""
+        try:
+            log = self.query_one("#container-log", Log)
+            log.scroll_up(animate=False)
+            log.scroll_up(animate=False)
+            log.scroll_up(animate=False)
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         """Compose the sandbox screen."""

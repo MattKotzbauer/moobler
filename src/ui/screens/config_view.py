@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer, Horizontal
 from textual.screen import Screen
 from textual.widgets import Button, DataTable, Label, Static, TabbedContent, TabPane
@@ -12,6 +13,113 @@ from ...config import parse_tmux_config, BindingMode
 
 class ConfigViewScreen(Screen):
     """Display and analyze the user's current tmux configuration."""
+
+    CSS = """
+    #bindings-table {
+        height: 1fr;
+    }
+
+    #style-container, #options-container {
+        height: 1fr;
+    }
+
+    #config-actions {
+        height: auto;
+        padding: 1 0;
+    }
+
+    #config-actions Button {
+        margin-right: 1;
+    }
+
+    DataTable > .datatable--cursor {
+        background: $primary;
+    }
+    """
+
+    BINDINGS = [
+        # Vim navigation for table
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("h", "prev_tab", "Prev Tab", show=False),
+        Binding("l", "next_tab", "Next Tab", show=False),
+        Binding("ctrl+d", "page_down", "Page Down", show=False),
+        Binding("ctrl+u", "page_up", "Page Up", show=False),
+        Binding("g", "go_top", "Top", show=False),
+        Binding("G", "go_bottom", "Bottom", show=False),
+    ]
+
+    def action_cursor_down(self) -> None:
+        """Move cursor down in table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            if self.focused == table:
+                table.action_cursor_down()
+            else:
+                self.focus_next()
+        except Exception:
+            self.focus_next()
+
+    def action_cursor_up(self) -> None:
+        """Move cursor up in table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            if self.focused == table:
+                table.action_cursor_up()
+            else:
+                self.focus_previous()
+        except Exception:
+            self.focus_previous()
+
+    def action_prev_tab(self) -> None:
+        """Go to previous tab."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            tabs.action_previous_tab()
+        except Exception:
+            pass
+
+    def action_next_tab(self) -> None:
+        """Go to next tab."""
+        try:
+            tabs = self.query_one(TabbedContent)
+            tabs.action_next_tab()
+        except Exception:
+            pass
+
+    def action_page_down(self) -> None:
+        """Page down in table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            for _ in range(10):
+                table.action_cursor_down()
+        except Exception:
+            pass
+
+    def action_page_up(self) -> None:
+        """Page up in table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            for _ in range(10):
+                table.action_cursor_up()
+        except Exception:
+            pass
+
+    def action_go_top(self) -> None:
+        """Go to top of table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            table.cursor_coordinate = (0, 0)
+        except Exception:
+            pass
+
+    def action_go_bottom(self) -> None:
+        """Go to bottom of table."""
+        try:
+            table = self.query_one("#bindings-table", DataTable)
+            table.cursor_coordinate = (table.row_count - 1, 0)
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         """Compose the config view screen."""
@@ -24,13 +132,13 @@ class ConfigViewScreen(Screen):
 
                 with TabPane("Style Analysis", id="tab-style"):
                     yield ScrollableContainer(
-                        Static("", id="style-analysis"),
+                        Static("", id="style-analysis", markup=False),
                         id="style-container",
                     )
 
                 with TabPane("Raw Options", id="tab-options"):
                     yield ScrollableContainer(
-                        Static("", id="raw-options"),
+                        Static("", id="raw-options", markup=False),
                         id="options-container",
                     )
 

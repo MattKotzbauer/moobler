@@ -1,6 +1,7 @@
 """Screen for discovering new keybindings."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, ScrollableContainer, Horizontal, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static, LoadingIndicator, ListView, ListItem
@@ -10,6 +11,97 @@ from ..widgets.keybind_card import KeybindCard
 
 class DiscoverScreen(Screen):
     """Discover and browse new keybinding suggestions."""
+
+    CSS = """
+    #discover-layout {
+        height: 1fr;
+    }
+
+    #categories {
+        width: 25;
+        height: 100%;
+        border: solid $primary;
+        padding: 1;
+    }
+
+    #category-list {
+        height: 1fr;
+    }
+
+    #category-list > ListItem {
+        padding: 0 1;
+    }
+
+    #category-list > ListItem:hover {
+        background: $surface-lighten-1;
+    }
+
+    #category-list > ListItem.-selected {
+        background: $primary;
+    }
+
+    #suggestions {
+        width: 1fr;
+        height: 100%;
+        padding: 0 1;
+    }
+
+    #suggestion-list {
+        height: 1fr;
+    }
+
+    #discover-actions {
+        height: auto;
+        padding: 1 0;
+    }
+
+    #discover-actions Button {
+        margin-right: 1;
+    }
+
+    .section-header {
+        text-style: bold;
+        margin-bottom: 1;
+    }
+    """
+
+    BINDINGS = [
+        # Vim bindings for this screen
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("ctrl+d", "scroll_down", "Scroll Down", show=False),
+        Binding("ctrl+u", "scroll_up", "Scroll Up", show=False),
+    ]
+
+    def action_cursor_down(self) -> None:
+        """Move cursor down in focused list."""
+        focused = self.focused
+        if isinstance(focused, ListView):
+            focused.action_cursor_down()
+        else:
+            self.focus_next()
+
+    def action_cursor_up(self) -> None:
+        """Move cursor up in focused list."""
+        focused = self.focused
+        if isinstance(focused, ListView):
+            focused.action_cursor_up()
+        else:
+            self.focus_previous()
+
+    def action_scroll_down(self) -> None:
+        """Scroll down half page (vim Ctrl+d)."""
+        container = self.query_one("#suggestion-list", ScrollableContainer)
+        container.scroll_down(animate=False)
+        container.scroll_down(animate=False)
+        container.scroll_down(animate=False)
+
+    def action_scroll_up(self) -> None:
+        """Scroll up half page (vim Ctrl+u)."""
+        container = self.query_one("#suggestion-list", ScrollableContainer)
+        container.scroll_up(animate=False)
+        container.scroll_up(animate=False)
+        container.scroll_up(animate=False)
 
     def compose(self) -> ComposeResult:
         """Compose the discover screen."""

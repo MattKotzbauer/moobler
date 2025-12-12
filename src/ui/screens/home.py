@@ -3,6 +3,7 @@
 from pathlib import Path
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Container, Vertical
 from textual.screen import Screen
 from textual.widgets import Button, Label, Static
@@ -12,6 +13,44 @@ from ...config import parse_tmux_config
 
 class HomeScreen(Screen):
     """Welcome screen with overview and quick actions."""
+
+    CSS = """
+    #status-section {
+        height: auto;
+        margin: 1 0;
+        padding: 1;
+        background: $surface-darken-1;
+        border: solid $primary;
+    }
+
+    #actions {
+        height: auto;
+        margin: 1 0;
+    }
+
+    #actions Button {
+        width: 100%;
+        margin: 1 0;
+    }
+
+    #actions Button:focus {
+        background: $success;
+    }
+    """
+
+    BINDINGS = [
+        Binding("j", "focus_next", "Down", show=False),
+        Binding("k", "focus_previous", "Up", show=False),
+        Binding("enter", "press_button", "Select", show=False),
+        Binding("o", "press_button", "Open", show=False),
+        Binding("l", "press_button", "Open", show=False),
+    ]
+
+    def action_press_button(self) -> None:
+        """Press the focused button."""
+        focused = self.focused
+        if isinstance(focused, Button):
+            focused.press()
 
     def compose(self) -> ComposeResult:
         """Compose the home screen."""
