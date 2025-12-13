@@ -145,7 +145,7 @@ export async function getAISuggestions(
   // Use streaming for progress updates
   let fullText = "";
   const stream = client.messages.stream({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-5-20250101",
     max_tokens: 2048,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
@@ -251,7 +251,7 @@ export async function generateChallenge(
   const prompt = interpolate(promptTemplate, { keybind, command });
 
   const response = await client.messages.create({
-    model: "claude-sonnet-4-20250514",
+    model: "claude-opus-4-5-20250101",
     max_tokens: 256,
     messages: [{ role: "user", content: prompt }],
   });

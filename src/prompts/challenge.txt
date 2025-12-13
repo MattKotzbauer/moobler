@@ -1,8 +1,16 @@
-Create a brief practice challenge for tmux keybind "{{keybind}}" which does "{{command}}".
+<keybind>{{keybind}}</keybind>
+<command>{{command}}</command>
 
-The challenge should:
+<task>
+Create a brief practice challenge for this tmux keybind.
+
+<requirements>
 - Give a clear, specific objective the user can accomplish
 - Be completable in under a minute
 - Help build muscle memory for the keybind
+</requirements>
 
+<output_format>
 Return JSON: {"objective": "...", "hint": "..."}
+</output_format>
+</task>
