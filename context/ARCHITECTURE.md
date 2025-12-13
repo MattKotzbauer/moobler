@@ -2,114 +2,164 @@
 
 ## Directory Structure
 ```
-tmux_learn/
+moobler/
+├── package.json            # Bun config, dependencies, scripts
+├── tsconfig.json           # TypeScript config (ESNext, React JSX)
+├── bun.lockb               # Bun lockfile
 ├── src/
-│   ├── main.py                 # Entry point
-│   ├── config/                 # Config parsing
-│   │   ├── models.py           # Pydantic: Keybinding, TmuxConfig, UserStyle
-│   │   ├── parser.py           # Parse ~/.tmux.conf, detect style
-│   │   └── merger.py           # Merge new keybinds into config
-│   ├── discovery/              # Find new keybinds
-│   │   ├── curated.py          # Built-in tips database (~20 tips)
-│   │   └── github_scraper.py   # Scrape popular dotfiles (not used yet)
-│   ├── ai/                     # Claude integration
-│   │   ├── client.py           # Claude API wrapper
-│   │   ├── suggester.py        # AI-powered suggestions
-│   │   └── challenge_gen.py    # Generate learning challenges
-│   ├── container/              # Docker sandbox
-│   │   ├── manager.py          # Container lifecycle (start/stop)
-│   │   └── tmux_bridge.py      # Communicate with tmux in container
-│   ├── challenges/             # Learning system
-│   │   ├── types.py            # Challenge, ChallengeType models
-│   │   └── engine.py           # Run challenges, validate completion
-│   ├── storage/                # Persistence
-│   │   ├── database.py         # SQLite schema & queries
-│   │   └── progress.py         # Track learning progress
-│   └── ui/                     # Textual TUI
-│       ├── app.py              # Main app, global keybindings
-│       ├── screens/
-│       │   ├── home.py         # Welcome, quick actions
-│       │   ├── config_view.py  # View parsed config, style analysis
-│       │   ├── discover.py     # Browse suggestions
-│       │   └── sandbox.py      # Container sandbox UI
-│       └── widgets/
-│           └── keybind_card.py # Suggestion card with actions
+│   ├── index.tsx           # Entry point, fullscreen setup
+│   ├── app.tsx             # Main App component, routing
+│   ├── screens/
+│   │   ├── Home.tsx        # Welcome, moobler art, menu
+│   │   ├── Config.tsx      # View config, style analysis
+│   │   ├── Discover.tsx    # AI suggestions browser
+│   │   └── Sandbox.tsx     # Docker sandbox UI
+│   └── lib/
+│       ├── config.ts       # tmux.conf parsing
+│       ├── ai.ts           # Claude API integration
+│       ├── github.ts       # GitHub scraper
+│       └── docker.ts       # Docker management
 ├── docker/
-│   ├── Dockerfile              # Ubuntu + tmux sandbox image
-│   └── entrypoint.sh           # Sets up practice environment
+│   ├── Dockerfile          # Ubuntu + tmux sandbox image
+│   └── entrypoint.sh       # Container setup script
 ├── data/
-│   └── curated_tips.json       # Exportable tips (not primary source)
-└── context/                    # This folder - project docs
+│   └── curated_tips.json   # Static tips database
+└── context/                # Project documentation
 ```
 
 ## Data Flow
 
 ### Config Parsing
 ```
-~/.tmux.conf → parser.py → TmuxConfig {
-    keybindings: [Keybinding, ...],
-    raw_options: {key: value, ...},
+~/.tmux.conf → lib/config.ts → TmuxConfig {
+    keybindings: Keybinding[],
     style: UserStyle {
-        prefix_key, uses_vim_keys, prefers_meta, navigation_pattern
-    }
+        prefixPreference: "no-prefix" | "prefix-based" | "mixed",
+        modifierPreference: "Alt/Meta" | "Ctrl" | "mixed",
+        navigationStyle: "vim" | "arrows" | "other",
+        keysInUse: string[]
+    },
+    raw: string
 }
 ```
 
-### Suggestion Generation
+### AI Suggestion Generation
 ```
-User's TmuxConfig
+User's ~/.tmux.conf
        ↓
-KeybindSuggester.get_suggestions()
+lib/ai.ts → getAISuggestions(category)
        ↓
-1. Get curated tips for category
-2. Filter out tips user already has
-3. Prioritize tips matching user's style
-4. Add complementary suggestions (e.g., M-HJKL if user has M-hjkl)
+1. Read user config, analyze style
+2. Scrape GitHub configs for inspiration
+3. Send to Claude with style-aware prompt
+4. Parse response into KeybindGroup[]
        ↓
-List of suggestions displayed as KeybindCards
+SuggestionResult {
+    styleAnalysis: { prefixPreference, modifierPreference, ... },
+    groups: KeybindGroup[]
+}
 ```
 
 ### Sandbox Flow
 ```
-KeybindCard.action_try_keybind()
+Discover.tsx → tryKeybind(kb)
        ↓
-Store keybind in app._keybind_to_try
+Set keybindToTry in App state
        ↓
-Switch to SandboxScreen
+Switch to Sandbox.tsx
        ↓
-User presses 's' → _start_sandbox()
+User presses 's' → launchSandbox()
        ↓
-1. Load user's ~/.tmux.conf
-2. Generate test binding config line
-3. Start Docker container with both configs mounted
+1. Write test binding to temp file
+2. Build shell script with Docker run command
+3. Launch Kitty with fullscreen script
        ↓
-User manually runs: docker exec -it tmux-sandbox tmux attach
+User practices in container tmux
        ↓
-Practice in container → exit → press 'x' to stop
+Exit tmux → Kitty closes → back to moobler
 ```
 
-## Key Classes
+## Key Interfaces
 
-### TmuxConfig (src/config/models.py)
-- Represents parsed tmux configuration
-- Contains keybindings, options, and detected style
-- Methods: `get_bindings_for_mode()`, `has_binding()`
+### TmuxConfig (lib/config.ts)
+```typescript
+interface TmuxConfig {
+    keybindings: Keybinding[];
+    style: UserStyle;
+    raw: string;
+}
 
-### KeybindSuggester (src/ai/suggester.py)
-- Generates suggestions based on user's config
-- Methods: `get_suggestions()` (rule-based), `get_ai_suggestions()` (Claude)
+interface Keybinding {
+    key: string;
+    command: string;
+    mode: "prefix" | "root";
+    raw: string;
+}
 
-### ContainerManager (src/container/manager.py)
-- Manages Docker container lifecycle
-- Methods: `start()`, `stop()`, `is_running()`, `get_attach_command()`
+interface UserStyle {
+    prefixPreference: "no-prefix" | "prefix-based" | "mixed";
+    modifierPreference: "Alt/Meta" | "Ctrl" | "mixed";
+    navigationStyle: "vim" | "arrows" | "other";
+    keysInUse: string[];
+}
+```
 
-### ChallengeEngine (src/challenges/engine.py)
-- Runs interactive challenges
-- Methods: `start_challenge()`, `check_completion()`, `run_challenge_loop()`
+### AI Types (lib/ai.ts)
+```typescript
+interface KeybindGroup {
+    name: string;
+    description: string;
+    keybinds: KeybindSuggestion[];
+    reasoning: string;
+}
+
+interface SuggestionResult {
+    styleAnalysis: { ... } | null;
+    groups: KeybindGroup[];
+}
+```
+
+## Key Components
+
+### App (app.tsx)
+- Main component, manages screen state
+- Global keybindings (1-4 for screens, q to quit)
+- Passes notify() and tryKeybind() to children
+- Triggers container prewarm on mount
+
+### DiscoverScreen (screens/Discover.tsx)
+- Two-panel layout: categories (left), suggestions (right)
+- Calls getAISuggestions() on category select
+- Displays style analysis and grouped suggestions
+- t key triggers sandbox with selected keybind
+
+### SandboxScreen (screens/Sandbox.tsx)
+- Shows Docker status, selected keybind, challenge
+- s key launches Kitty with Docker sandbox
+- Generates AI challenge for keybind practice
+
+### lib/docker.ts
+- prewarmContainer(): Start container on app launch
+- launchSandbox(): Build script, launch in Kitty
+- cleanupPrewarm(): Remove container on exit
+
+## Fullscreen Mode
+
+The app uses the terminal's alternate screen buffer:
+```typescript
+// Enter alternate screen (index.tsx)
+process.stdout.write("\x1b[?1049h");  // Enter
+process.stdout.write("\x1b[2J");       // Clear
+process.stdout.write("\x1b[H");        // Cursor home
+
+// Exit alternate screen (on quit)
+process.stdout.write("\x1b[?1049l");
+```
+
+This provides a clean, fullscreen experience like vim/htop.
 
 ## Environment
-- Ubuntu Linux
-- Python 3.11+ (via miniconda)
-- Docker installed
-- ANTHROPIC_API_KEY in ~/.bashrc
-- User's terminal: Kitty
+- Bun 1.0+ (JavaScript/TypeScript runtime)
+- Docker (for sandbox containers)
+- Kitty terminal (for fullscreen sandbox)
+- ANTHROPIC_API_KEY in environment
