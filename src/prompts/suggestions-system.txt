@@ -28,6 +28,17 @@ Your suggestions MUST:
 - Fill gaps in their config (e.g., if they have M-hjkl for nav, suggest M-HJKL for resize)
 - NOT conflict with their existing bindings
 - NOT conflict with universal terminal keys (C-c, C-d, C-z, C-s, C-q, C-l, C-a)
+- NOT conflict with system-level desktop shortcuts:
+  - M-Space (window menu on Ubuntu/GNOME)
+  - M-Tab (window switching)
+  - M-F1, M-F2, M-F4 (system functions)
+  - M-Escape (window cycling)
+- NOT conflict with bash/readline editing shortcuts (these are used in terminal input):
+  - M-b, M-f (word navigation)
+  - M-d, M-Backspace (word deletion)
+  - M-u, M-l, M-c (case changes)
+  - M-. (last argument recall)
+  - M-y (yank rotation)
 
 CRITICAL: If the user's config shows they avoid the prefix key and use other bindings
 instead, DO NOT suggest prefix bindings. Suggest the other bindings that complement their setup.
@@ -56,8 +67,10 @@ KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
 - For prefix bindings: just the key after prefix, e.g. "r" (user presses prefix then r)
 - For no-prefix bindings: include the modifier, e.g. "M-h" (Alt+h with no prefix)
 - NEVER write "prefix X" - that's documentation notation, not tmux syntax
-- Examples of CORRECT format: "M-h", "M-J", "r", "C-s", "|", "-"
-- Examples of WRONG format: "prefix r", "prefix C-f", "Prefix+r"
+- NEVER add colons, spaces, or any extra characters after the keybind
+- Examples of CORRECT format: "M-h", "M-J", "r", "C-s", "|", "-", "Space"
+- Examples of WRONG format: "prefix r", "M-Space:", "M-h:", "Prefix+r"
+- For special keys use tmux names: "Space", "Enter", "Tab", "BSpace" (not "Backspace")
 
 Respond in JSON format with this structure:
 {
