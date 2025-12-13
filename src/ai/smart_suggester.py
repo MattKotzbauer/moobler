@@ -10,6 +10,15 @@ from pydantic import BaseModel
 from ..discovery.github_scraper import scrape_github_dotfiles, ScrapedKeybind
 
 
+class UserStyleAnalysis(BaseModel):
+    """Analysis of user's keybinding style preferences."""
+
+    prefix_preference: str  # "no-prefix (Alt/Meta)" | "prefix-based" | "mixed"
+    modifier_preference: str  # "Alt/Meta" | "Ctrl" | "mixed"
+    navigation_style: str  # "vim" | "arrows" | "other"
+    keys_in_use: list[str]  # List of keys already bound
+
+
 class KeybindGroup(BaseModel):
     """A group of related keybindings to try together."""
 
@@ -17,6 +26,13 @@ class KeybindGroup(BaseModel):
     description: str  # What this group does
     keybinds: list[dict]  # [{keybind, command, description}, ...]
     reasoning: str  # Why these are grouped together
+
+
+class SuggestionResult(BaseModel):
+    """Result from AI suggestion including style analysis."""
+
+    style_analysis: Optional[UserStyleAnalysis] = None
+    groups: list[KeybindGroup]
 
 
 class SmartSuggester:
@@ -68,14 +84,14 @@ class SmartSuggester:
     async def get_smart_suggestions(
         self,
         category: Optional[str] = None,
-    ) -> list[KeybindGroup]:
+    ) -> SuggestionResult:
         """Get AI-powered suggestions grouped by related functionality.
 
         Args:
             category: Optional category to focus on (navigation, panes, etc.)
 
         Returns:
-            List of KeybindGroup objects with related keybinds grouped together
+            SuggestionResult with style analysis and grouped keybinds
         """
         # 1. Read user's config
         user_config = self._read_user_config()
@@ -89,25 +105,41 @@ class SmartSuggester:
 
         system_prompt = """You are a tmux expert helping users discover new keybindings.
 
-Your job is to:
-1. Analyze the user's current tmux config to understand their style
-2. Look at popular keybindings from GitHub configs
-3. Suggest NEW keybindings that:
-   - Match the user's style (if they use vim keys, suggest vim-style bindings)
-   - Don't conflict with their existing bindings
-   - Are genuinely useful
-   - Are grouped logically (e.g., all resize bindings together)
+STEP 1 - ANALYZE USER'S STYLE PATTERNS (do this carefully before suggesting anything):
 
-IMPORTANT CONSTRAINTS:
-- NEVER suggest C-c, C-d, C-z, C-s, C-q - these conflict with terminal control signals
-- NEVER suggest C-l (clears screen) or C-a (often used as tmux prefix or readline)
-- Prefer Alt/Meta bindings (M-x) for no-prefix shortcuts as they rarely conflict
-- If suggesting prefix bindings, use memorable letters that aren't already common defaults
+Look at their config and determine:
+1. **Prefix vs No-Prefix preference**:
+   - Count bindings using `bind -n` (no prefix, direct shortcuts) vs `bind` (requires prefix)
+   - If they predominantly use `bind -n M-...` (Alt+key), they prefer PREFIX-FREE bindings
+   - If they mostly use `bind X ...` (prefix then key), they prefer PREFIX bindings
+   - MATCH THEIR PREFERENCE. If they use Alt for everything, suggest Alt bindings.
 
-IMPORTANT: Group related keybindings together. For example:
-- If suggesting resize bindings, include all 4 directions (up/down/left/right)
-- If suggesting navigation, include related navigation bindings
-- Each group should be something the user can practice together in one session
+2. **Modifier preference**:
+   - Do they use M- (Alt/Meta) bindings?
+   - Do they use C- (Ctrl) bindings?
+   - Do they use Shift variants (uppercase like M-H vs M-h)?
+
+3. **Navigation style**:
+   - vim keys (h/j/k/l)?
+   - arrow keys?
+   - other patterns?
+
+4. **Keys already in use**: List ALL keys they've bound so you don't conflict
+
+STEP 2 - SUGGEST COMPLEMENTARY KEYBINDINGS:
+
+Your suggestions MUST:
+- Use the SAME binding style as the user (if they use M-x everywhere, suggest M-x bindings)
+- Fill gaps in their config (e.g., if they have M-hjkl for nav, suggest M-HJKL for resize)
+- NOT conflict with their existing bindings
+- NOT conflict with universal terminal keys (C-c, C-d, C-z, C-s, C-q, C-l, C-a)
+
+CRITICAL: If the user's config shows they avoid the prefix key and use Alt/Meta bindings
+instead, DO NOT suggest prefix bindings. Suggest Alt/Meta bindings that complement their setup.
+
+STEP 3 - GROUP LOGICALLY:
+- Group related keybindings (e.g., all 4 resize directions together)
+- Each group should be something to practice in one session
 
 KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
 - For prefix bindings: just the key after prefix, e.g. "r" (user presses prefix then r)
@@ -118,6 +150,12 @@ KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
 
 Respond in JSON format with this structure:
 {
+  "user_style_analysis": {
+    "prefix_preference": "no-prefix (Alt/Meta)" | "prefix-based" | "mixed",
+    "modifier_preference": "Alt/Meta" | "Ctrl" | "mixed",
+    "navigation_style": "vim" | "arrows" | "other",
+    "keys_in_use": ["M-h", "M-j", "M-k", "M-l", ...]
+  },
   "groups": [
     {
       "name": "Group Name",
@@ -126,12 +164,12 @@ Respond in JSON format with this structure:
         {"keybind": "M-H", "command": "resize-pane -L 5", "description": "Resize pane left"},
         {"keybind": "M-J", "command": "resize-pane -D 5", "description": "Resize pane down"}
       ],
-      "reasoning": "Why these bindings work well together and match user's style"
+      "reasoning": "Why these bindings complement the user's existing style"
     }
   ]
 }
 
-Return 2-4 groups of suggestions."""
+Return 2-4 groups of suggestions that MATCH the user's established patterns."""
 
         user_prompt = f"""Here is the user's current tmux configuration:
 
@@ -139,13 +177,20 @@ Return 2-4 groups of suggestions."""
 {user_config if user_config else "No existing tmux.conf found - user is starting fresh"}
 ```
 
-Here are popular keybindings from well-known GitHub tmux configs:
+Here are popular keybindings from well-known GitHub tmux configs (use these as inspiration, but ADAPT them to match the user's style):
 
 {github_formatted}
 {category_focus}
 
-Based on the user's style and these popular configs, suggest grouped keybindings.
-Remember to return valid JSON."""
+IMPORTANT: First analyze the user's config to identify their patterns:
+- Do they use `bind -n` (no prefix) or `bind` (with prefix)?
+- What modifiers do they prefer (M- for Alt, C- for Ctrl)?
+- What keys are already taken?
+
+Then suggest keybindings that use the SAME style. If they use Alt+key bindings everywhere,
+suggest more Alt+key bindings - NOT prefix bindings.
+
+Return valid JSON with user_style_analysis and groups."""
 
         # 4. Call Claude
         response = self.client.messages.create(
@@ -168,6 +213,19 @@ Remember to return valid JSON."""
 
         try:
             data = json.loads(response_text)
+
+            # Parse style analysis if present
+            style_analysis = None
+            if "user_style_analysis" in data:
+                sa = data["user_style_analysis"]
+                style_analysis = UserStyleAnalysis(
+                    prefix_preference=sa.get("prefix_preference", "unknown"),
+                    modifier_preference=sa.get("modifier_preference", "unknown"),
+                    navigation_style=sa.get("navigation_style", "unknown"),
+                    keys_in_use=sa.get("keys_in_use", []),
+                )
+
+            # Parse groups
             groups = []
             for g in data.get("groups", []):
                 groups.append(KeybindGroup(
@@ -176,15 +234,19 @@ Remember to return valid JSON."""
                     keybinds=g.get("keybinds", []),
                     reasoning=g.get("reasoning", ""),
                 ))
-            return groups
+
+            return SuggestionResult(style_analysis=style_analysis, groups=groups)
         except json.JSONDecodeError:
             # Return raw as single group
-            return [KeybindGroup(
-                name="AI Suggestions",
-                description="Suggestions from Claude",
-                keybinds=[],
-                reasoning=response_text,
-            )]
+            return SuggestionResult(
+                style_analysis=None,
+                groups=[KeybindGroup(
+                    name="AI Suggestions",
+                    description="Suggestions from Claude",
+                    keybinds=[],
+                    reasoning=response_text,
+                )]
+            )
 
     def generate_config_addition(
         self,

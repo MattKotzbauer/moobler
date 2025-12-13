@@ -461,21 +461,32 @@ class DiscoverScreen(Screen):
             self.app.notify("Analyzing your config + GitHub configs...", title="AI Search")
 
             # Get grouped suggestions from Claude
-            groups = await suggester.get_smart_suggestions(category=category)
+            result = await suggester.get_smart_suggestions(category=category)
 
-            if not groups:
+            if not result.groups:
                 self.app.notify("No suggestions returned", title="AI Search")
                 return
 
             # Store groups for later use (sandbox, add to config)
-            self._suggestion_groups = groups
+            self._suggestion_groups = result.groups
 
             # Clear and display grouped suggestions
             container = self.query_one("#suggestion-list", ScrollableContainer)
             container.remove_children()
 
+            # Show style analysis if available
+            if result.style_analysis:
+                sa = result.style_analysis
+                style_info = Static(
+                    f"[bold cyan]Your Style:[/bold cyan] {sa.prefix_preference}, "
+                    f"{sa.modifier_preference} keys, {sa.navigation_style} navigation\n"
+                    f"[dim]Keys in use: {', '.join(sa.keys_in_use[:10])}{'...' if len(sa.keys_in_use) > 10 else ''}[/dim]",
+                    classes="group-header",
+                )
+                container.mount(style_info)
+
             total_keybinds = 0
-            for group in groups:
+            for group in result.groups:
                 # Add group header
                 header = Static(
                     f"[bold]{group.name}[/bold]\n{group.description}",
@@ -511,7 +522,7 @@ class DiscoverScreen(Screen):
                 container.mount(group_actions)
 
             self.app.notify(
-                f"Found {len(groups)} groups with {total_keybinds} keybinds!",
+                f"Found {len(result.groups)} groups with {total_keybinds} keybinds!",
                 title="AI Search",
             )
 
