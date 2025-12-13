@@ -50,6 +50,47 @@ function sanitizeKeybind(keybind: string): string {
     .replace(/\s+$/, ""); // Remove trailing spaces
 }
 
+/**
+ * Sanitize command string - fix common AI output issues
+ */
+function sanitizeCommand(command: string): string {
+  return command
+    .trim()
+    .replace(/^["']|["']$/g, "")  // Remove wrapping quotes
+    .replace(/\\;/g, " \\; ")     // Ensure proper spacing around escaped semicolons
+    .replace(/\s+/g, " ")         // Normalize whitespace
+    .trim();
+}
+
+/**
+ * Validate that a keybind looks syntactically correct
+ */
+function isValidKeybind(kb: { keybind: string; command: string }): boolean {
+  // Keybind should not be empty
+  if (!kb.keybind || kb.keybind.length === 0) return false;
+
+  // Command should not be empty
+  if (!kb.command || kb.command.length === 0) return false;
+
+  // Keybind should not contain spaces (except for special keys like "Space")
+  if (kb.keybind.includes(" ") && kb.keybind !== "Space") return false;
+
+  // Command should start with a valid tmux command
+  const validCommands = [
+    "select-", "resize-", "split-", "swap-", "kill-", "new-", "next-", "prev-",
+    "last-", "send-", "copy-", "paste-", "set-", "display-", "list-", "source-",
+    "run-", "if-", "command-prompt", "choose-", "break-", "join-", "move-",
+    "rename-", "rotate-", "switch-", "detach", "attach", "has-", "show-",
+    "bind", "unbind", "refresh", "clear", "clock", "confirm", "suspend",
+    "lock", "pipe", "wait", "load", "save", "delete"
+  ];
+
+  const firstWord = kb.command.split(/\s/)[0];
+  const isValid = validCommands.some(cmd => firstWord.startsWith(cmd));
+
+  return isValid;
+}
+
 export async function getAISuggestions(
   category?: string,
   onProgress?: ProgressCallback
@@ -156,15 +197,23 @@ export async function getAISuggestions(
         }
       : null;
 
-    const groups: KeybindGroup[] = (data.groups || []).map((g: any) => ({
-      name: g.name || "Suggestions",
-      description: g.description || "",
-      keybinds: (g.keybinds || []).map((kb: any) => ({
-        ...kb,
-        keybind: sanitizeKeybind(kb.keybind || ""),
-      })),
-      reasoning: g.reasoning || "",
-    }));
+    const groups: KeybindGroup[] = (data.groups || []).map((g: any) => {
+      // Sanitize and validate keybinds
+      const sanitizedKeybinds = (g.keybinds || [])
+        .map((kb: any) => ({
+          keybind: sanitizeKeybind(kb.keybind || ""),
+          command: sanitizeCommand(kb.command || ""),
+          description: kb.description || "",
+        }))
+        .filter(isValidKeybind);
+
+      return {
+        name: g.name || "Suggestions",
+        description: g.description || "",
+        keybinds: sanitizedKeybinds,
+        reasoning: g.reasoning || "",
+      };
+    }).filter(g => g.keybinds.length > 0);  // Remove empty groups
 
     onProgress?.("Done!");
     return { styleAnalysis, groups };
