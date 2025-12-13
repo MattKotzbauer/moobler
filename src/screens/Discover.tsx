@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Box, Text, useInput } from "ink";
 import SelectInput from "ink-select-input";
 import Spinner from "ink-spinner";
@@ -15,9 +15,13 @@ interface Props {
     command: string;
     description: string;
   }) => void;
+  prefetchedResult: SuggestionResult | null;
+  prefetchProgress: string;
+  prefetchLoading: boolean;
 }
 
 const CATEGORIES = [
+  { label: "All (Pre-fetched)", value: "" },
   { label: "Navigation", value: "navigation" },
   { label: "Pane Management", value: "panes" },
   { label: "Window Management", value: "windows" },
@@ -26,19 +30,47 @@ const CATEGORIES = [
   { label: "Productivity", value: "productivity" },
 ];
 
-export function DiscoverScreen({ notify, tryKeybind }: Props) {
+export function DiscoverScreen({
+  notify,
+  tryKeybind,
+  prefetchedResult,
+  prefetchProgress,
+  prefetchLoading,
+}: Props) {
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState("");
   const [result, setResult] = useState<SuggestionResult | null>(null);
   const [selectedGroup, setSelectedGroup] = useState(0);
   const [selectedKeybind, setSelectedKeybind] = useState(0);
   const [panel, setPanel] = useState<"categories" | "suggestions">("categories");
-  const [category, setCategory] = useState("navigation");
+  const [category, setCategory] = useState("");
+
+  // Use prefetched result when available
+  useEffect(() => {
+    if (prefetchedResult && !result) {
+      setResult(prefetchedResult);
+      setPanel("suggestions");
+    }
+  }, [prefetchedResult]);
 
   const fetchSuggestions = async (cat: string) => {
+    // If selecting "All" and we have prefetched, just use it
+    if (cat === "" && prefetchedResult) {
+      setResult(prefetchedResult);
+      setPanel("suggestions");
+      setSelectedGroup(0);
+      setSelectedKeybind(0);
+      notify(`Using pre-fetched suggestions!`);
+      return;
+    }
+
     setLoading(true);
     setCategory(cat);
+    setProgress("Starting...");
     try {
-      const suggestions = await getAISuggestions(cat);
+      const suggestions = await getAISuggestions(cat || undefined, (status) => {
+        setProgress(status);
+      });
       setResult(suggestions);
       setPanel("suggestions");
       setSelectedGroup(0);
@@ -48,6 +80,7 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
       notify(`Error: ${e.message}`);
     } finally {
       setLoading(false);
+      setProgress("");
     }
   };
 
@@ -83,14 +116,18 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
           });
         }
       }
-    } else if (input === "l" && !loading) {
+    } else if (input === "l" && !loading && !prefetchLoading) {
       if (result) {
         setPanel("suggestions");
       }
-    } else if (input === "s" && !loading) {
+    } else if (input === "s" && !loading && !prefetchLoading) {
       fetchSuggestions(category);
     }
   });
+
+  // Determine what loading state to show
+  const isLoading = loading || (prefetchLoading && !result);
+  const currentProgress = loading ? progress : prefetchProgress;
 
   return (
     <Box flexDirection="column" padding={1}>
@@ -110,7 +147,7 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
           <SelectInput
             items={CATEGORIES}
             onSelect={(item) => fetchSuggestions(item.value)}
-            isFocused={panel === "categories" && !loading}
+            isFocused={panel === "categories" && !isLoading}
           />
           <Box marginTop={1}>
             <Text color="gray">(s) Search Online</Text>
@@ -128,10 +165,24 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
         >
           <Text bold>Suggestions</Text>
 
-          {loading ? (
-            <Box marginTop={1}>
-              <Spinner type="dots" />
-              <Text color="yellow"> Analyzing your config + GitHub...</Text>
+          {isLoading ? (
+            <Box marginTop={1} flexDirection="column">
+              <Box>
+                <Spinner type="dots" />
+                <Text color="yellow"> {currentProgress}</Text>
+              </Box>
+              {/* Show progress as greyed out thinking text */}
+              <Box marginTop={1} paddingX={1}>
+                <Text color="gray" dimColor>
+                  {currentProgress.includes("Generating")
+                    ? "Claude is analyzing your config and generating personalized suggestions..."
+                    : currentProgress.includes("GitHub")
+                    ? "Fetching popular keybindings from community configs..."
+                    : currentProgress.includes("Analyzing")
+                    ? "Detecting your preferred keybinding style..."
+                    : "Preparing suggestions tailored to your setup..."}
+                </Text>
+              </Box>
             </Box>
           ) : result ? (
             <Box flexDirection="column" marginTop={1}>
@@ -161,7 +212,7 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
                     backgroundColor={gi === selectedGroup ? "blue" : undefined}
                     paddingX={1}
                   >
-                    <Text bold color="green">
+                    <Text bold color={gi === selectedGroup ? "white" : "green"}>
                       {group.name}
                     </Text>
                   </Box>
@@ -170,38 +221,26 @@ export function DiscoverScreen({ notify, tryKeybind }: Props) {
                   </Text>
 
                   {/* Keybinds in group */}
-                  {group.keybinds.map((kb, ki) => (
-                    <Box
-                      key={ki}
-                      paddingX={1}
-                      backgroundColor={
-                        gi === selectedGroup && ki === selectedKeybind
-                          ? "cyan"
-                          : undefined
-                      }
-                    >
-                      <Text
-                        color={
-                          gi === selectedGroup && ki === selectedKeybind
-                            ? "black"
-                            : "yellow"
-                        }
-                        bold
+                  {group.keybinds.map((kb, ki) => {
+                    const isSelected = gi === selectedGroup && ki === selectedKeybind;
+                    return (
+                      <Box
+                        key={ki}
+                        paddingX={1}
+                        backgroundColor={isSelected ? "blue" : undefined}
                       >
-                        {kb.keybind}
-                      </Text>
-                      <Text
-                        color={
-                          gi === selectedGroup && ki === selectedKeybind
-                            ? "black"
-                            : undefined
-                        }
-                      >
-                        {" "}
-                        - {kb.description}
-                      </Text>
-                    </Box>
-                  ))}
+                        <Text
+                          color={isSelected ? "white" : "yellow"}
+                          bold
+                        >
+                          {kb.keybind}
+                        </Text>
+                        <Text color={isSelected ? "white" : undefined}>
+                          {" "}- {kb.description}
+                        </Text>
+                      </Box>
+                    );
+                  })}
                 </Box>
               ))}
 

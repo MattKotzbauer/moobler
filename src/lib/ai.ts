@@ -26,6 +26,8 @@ export interface SuggestionResult {
   groups: KeybindGroup[];
 }
 
+export type ProgressCallback = (status: string) => void;
+
 // Load prompts from files
 const PROMPTS_DIR = join(import.meta.dir, "../prompts");
 
@@ -39,7 +41,8 @@ function interpolate(template: string, vars: Record<string, string>): string {
 }
 
 export async function getAISuggestions(
-  category?: string
+  category?: string,
+  onProgress?: ProgressCallback
 ): Promise<SuggestionResult> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -48,12 +51,19 @@ export async function getAISuggestions(
 
   const client = new Anthropic({ apiKey });
 
+  // Progress updates
+  onProgress?.("Loading prompts...");
+
   // Load prompts
   const systemPrompt = await loadPrompt("suggestions-system");
   const userPromptTemplate = await loadPrompt("suggestions-user");
 
+  onProgress?.("Reading your tmux config...");
+
   // Read user's config
   const userConfig = await readTmuxConfig();
+
+  onProgress?.("Scraping GitHub configs for inspiration...");
 
   // Fetch GitHub configs for inspiration
   let githubKeybinds = "";
@@ -63,8 +73,10 @@ export async function getAISuggestions(
       .slice(0, 30)
       .map((kb) => `  ${kb.raw} (from ${kb.source})`)
       .join("\n");
+    onProgress?.(`Found ${scraped.length} keybinds from GitHub...`);
   } catch {
     githubKeybinds = "GitHub configs unavailable";
+    onProgress?.("GitHub unavailable, using local data...");
   }
 
   const categoryFocus = category
@@ -77,19 +89,47 @@ export async function getAISuggestions(
     categoryFocus,
   });
 
-  const response = await client.messages.create({
+  onProgress?.("Asking Claude for suggestions...");
+
+  // Use streaming for progress updates
+  let fullText = "";
+  const stream = client.messages.stream({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2048,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });
 
-  const text =
-    response.content[0].type === "text" ? response.content[0].text : "";
+  // Show streaming progress
+  let lastUpdate = Date.now();
+  stream.on("text", (text) => {
+    fullText += text;
+    // Throttle updates to every 500ms
+    if (Date.now() - lastUpdate > 500) {
+      // Try to extract what Claude is thinking about
+      const lines = fullText.split("\n").filter(l => l.trim());
+      const lastLine = lines[lines.length - 1] || "";
+      if (lastLine.includes('"name"')) {
+        const match = lastLine.match(/"name"\s*:\s*"([^"]+)"/);
+        if (match) {
+          onProgress?.(`Generating: ${match[1]}...`);
+        }
+      } else if (fullText.length < 200) {
+        onProgress?.("Analyzing your style preferences...");
+      } else {
+        onProgress?.(`Generating suggestions (${Math.floor(fullText.length / 100)}%)...`);
+      }
+      lastUpdate = Date.now();
+    }
+  });
+
+  await stream.finalMessage();
+
+  onProgress?.("Parsing suggestions...");
 
   // Extract JSON from response
-  let jsonText = text;
-  const jsonMatch = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  let jsonText = fullText;
+  const jsonMatch = fullText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
   if (jsonMatch) {
     jsonText = jsonMatch[1];
   }
@@ -113,6 +153,7 @@ export async function getAISuggestions(
       reasoning: g.reasoning || "",
     }));
 
+    onProgress?.("Done!");
     return { styleAnalysis, groups };
   } catch {
     return {
@@ -122,7 +163,7 @@ export async function getAISuggestions(
           name: "AI Suggestions",
           description: "Could not parse response",
           keybinds: [],
-          reasoning: text,
+          reasoning: fullText,
         },
       ],
     };

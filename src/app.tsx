@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import { HomeScreen } from "./screens/Home.js";
 import { DiscoverScreen } from "./screens/Discover.js";
 import { SandboxScreen } from "./screens/Sandbox.js";
 import { ConfigScreen } from "./screens/Config.js";
 import { prewarmContainer, cleanupPrewarm } from "./lib/docker.js";
+import { getAISuggestions, type SuggestionResult } from "./lib/ai.js";
 
 type Screen = "home" | "config" | "discover" | "sandbox";
 
@@ -18,9 +19,33 @@ export function App() {
     description: string;
   } | null>(null);
 
-  // Prewarm container on startup
+  // Pre-fetched suggestions state
+  const [prefetchedResult, setPrefetchedResult] = useState<SuggestionResult | null>(null);
+  const [prefetchProgress, setPrefetchProgress] = useState<string>("Starting...");
+  const [prefetchLoading, setPrefetchLoading] = useState(true);
+  const prefetchStarted = useRef(false);
+
+  // Prewarm container and pre-fetch suggestions on startup
   useEffect(() => {
     prewarmContainer().catch(() => {});
+
+    // Only start prefetch once
+    if (!prefetchStarted.current) {
+      prefetchStarted.current = true;
+      setPrefetchLoading(true);
+      getAISuggestions(undefined, (status) => {
+        setPrefetchProgress(status);
+      })
+        .then((result) => {
+          setPrefetchedResult(result);
+          setPrefetchLoading(false);
+          setPrefetchProgress("Ready!");
+        })
+        .catch((e) => {
+          setPrefetchProgress(`Error: ${e.message}`);
+          setPrefetchLoading(false);
+        });
+    }
   }, []);
 
   // Clear notifications after 3 seconds
@@ -77,7 +102,13 @@ export function App() {
         )}
         {screen === "config" && <ConfigScreen notify={notify} />}
         {screen === "discover" && (
-          <DiscoverScreen notify={notify} tryKeybind={tryKeybind} />
+          <DiscoverScreen
+            notify={notify}
+            tryKeybind={tryKeybind}
+            prefetchedResult={prefetchedResult}
+            prefetchProgress={prefetchProgress}
+            prefetchLoading={prefetchLoading}
+          />
         )}
         {screen === "sandbox" && (
           <SandboxScreen keybindToTry={keybindToTry} notify={notify} />
