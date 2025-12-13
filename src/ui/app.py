@@ -13,7 +13,7 @@ from .screens.sandbox import SandboxScreen
 class TmuxLearnApp(App):
     """AI-powered tmux tutor application."""
 
-    TITLE = "tmux-learn"
+    TITLE = "moobler"
     SUB_TITLE = "Learn new tmux controls with AI"
 
     CSS = """

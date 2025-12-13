@@ -11,10 +11,42 @@ from textual.widgets import Button, Label, Static
 from ...config import parse_tmux_config
 
 
+MOOBLER_ART = r'''
+       /( ,,,,, )\
+    _\,;;;;;;;,/_
+ .-"; ;;;;;;;;; ;"-.
+ '.__/`_ / \ _`\__.'
+    | (')| |(') |
+    | .--' '--. |
+    |/ o     o \|
+    |           |
+   / \ _..=.._ / \
+  /:. '._____.'   \
+ ;::'    / \      .;
+ |     _|_ _|_   ::|
+.-|     '==o=='    '|-.
+/  |  . /       \    |  \
+|  | ::|         |   | .|
+|  (  ')         (.  )::|
+|: |   |; U U U ;|:: | `|
+|' |   | \ U U / |'  |  |
+##V|   |_/`"""`\_|   |V##
+   ##V##         ##V##
+'''
+
+
 class HomeScreen(Screen):
     """Welcome screen with overview and quick actions."""
 
     CSS = """
+    #moobler-art {
+        height: auto;
+        text-align: center;
+        color: $success;
+        margin: 0;
+        padding: 0;
+    }
+
     #status-section {
         height: auto;
         margin: 1 0;
@@ -44,6 +76,7 @@ class HomeScreen(Screen):
         Binding("enter", "press_button", "Select", show=False),
         Binding("o", "press_button", "Open", show=False),
         Binding("l", "press_button", "Open", show=False),
+        Binding("m", "moobler", "Moobler", show=False),
     ]
 
     def action_press_button(self) -> None:
@@ -52,10 +85,15 @@ class HomeScreen(Screen):
         if isinstance(focused, Button):
             focused.press()
 
+    def action_moobler(self) -> None:
+        """Show the moobler!"""
+        self.app.notify(MOOBLER_ART, title="MOOBLER!", timeout=10)
+
     def compose(self) -> ComposeResult:
         """Compose the home screen."""
         with Container(id="main-content"):
-            yield Static("tmux-learn", classes="title")
+            yield Static(MOOBLER_ART, id="moobler-art")
+            yield Static("moobler", classes="title")
             yield Static(
                 "Learn new tmux controls with AI-powered suggestions",
                 classes="subtitle",
@@ -71,7 +109,7 @@ class HomeScreen(Screen):
                 yield Button("My Progress", id="btn-progress", variant="default")
 
             yield Static(
-                "Press ? for keyboard shortcuts",
+                "Press ? for help, m for moobler",
                 classes="hint",
             )
 

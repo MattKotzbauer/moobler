@@ -1,5 +1,5 @@
 [project]
-name = "tmux-learn"
+name = "moobler"
 version = "0.1.0"
 description = "AI-powered tmux tutor with interactive challenges"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tmux-learn = "src.main:main"
+moobler = "src.main:main"
 
 [build-system]
 requires = ["hatchling"]
