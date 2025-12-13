@@ -1,0 +1,20 @@
+Here is the user's current tmux configuration:
+
+```
+{{userConfig}}
+```
+
+Here are popular keybindings from GitHub configs (use as inspiration, ADAPT to user's style):
+
+{{githubKeybinds}}
+{{categoryFocus}}
+
+IMPORTANT: First analyze the user's config to identify their patterns:
+- Do they use `bind -n` (no prefix) or `bind` (with prefix)?
+- What modifiers do they prefer (M- for Alt, C- for Ctrl)?
+- What keys are already taken?
+
+Then suggest keybindings that use the SAME style. If they use Alt+key bindings everywhere,
+suggest more Alt+key bindings - NOT prefix bindings.
+
+Return valid JSON with user_style_analysis and groups.
