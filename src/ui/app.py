@@ -1,5 +1,9 @@
 """Main Textual application."""
 
+import asyncio
+import subprocess
+from pathlib import Path
+
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Footer, Header
@@ -14,6 +18,7 @@ class TmuxLearnApp(App):
     """AI-powered tmux tutor application."""
 
     TITLE = "moobler"
+    PREWARM_CONTAINER_NAME = "moobler-prewarm"
     SUB_TITLE = "Learn new tmux controls with AI"
 
     CSS = """
@@ -123,6 +128,76 @@ class TmuxLearnApp(App):
     def on_mount(self) -> None:
         """Called when app is mounted."""
         self.push_screen("home")
+        # Pre-warm container in background for faster sandbox startup
+        self.run_worker(self._prewarm_container(), exclusive=True, name="prewarm")
+
+    async def _prewarm_container(self) -> None:
+        """Pre-warm a Docker container with user's config for faster sandbox startup."""
+        from ..container.manager import ContainerManager
+
+        try:
+            manager = ContainerManager()
+
+            # Check Docker is available
+            try:
+                manager.client.ping()
+            except Exception:
+                return  # Docker not available, skip pre-warm
+
+            # Build image if needed (first time)
+            if not manager.is_image_built():
+                await manager.build_image()
+
+            # Stop any existing pre-warm container
+            try:
+                container = manager.client.containers.get(self.PREWARM_CONTAINER_NAME)
+                container.remove(force=True)
+            except Exception:
+                pass
+
+            # Mount user's tmux.conf if it exists
+            volumes = {}
+            tmux_conf_path = Path.home() / ".tmux.conf"
+            if tmux_conf_path.exists():
+                volumes[str(tmux_conf_path)] = {"bind": "/tmp/user.tmux.conf", "mode": "ro"}
+
+            # Start pre-warmed container in background
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(
+                None,
+                lambda: manager.client.containers.run(
+                    manager.IMAGE_NAME,
+                    name=self.PREWARM_CONTAINER_NAME,
+                    detach=True,
+                    tty=True,
+                    stdin_open=True,
+                    volumes=volumes,
+                    remove=False,  # Don't auto-remove so we can reuse
+                    entrypoint="/bin/bash",
+                    command=["-c", "cp /tmp/user.tmux.conf ~/.tmux.conf 2>/dev/null; tail -f /dev/null"],
+                ),
+            )
+            # Store that pre-warm is ready
+            self._prewarm_ready = True
+
+        except Exception:
+            # Pre-warm failed, that's OK - sandbox will work normally
+            self._prewarm_ready = False
+
+    def _cleanup_prewarm(self) -> None:
+        """Clean up pre-warmed container on exit."""
+        try:
+            import docker
+            client = docker.from_env()
+            container = client.containers.get(self.PREWARM_CONTAINER_NAME)
+            container.remove(force=True)
+        except Exception:
+            pass
+
+    def action_quit(self) -> None:
+        """Quit the application and clean up."""
+        self._cleanup_prewarm()
+        self.exit()
 
     def action_go_home(self) -> None:
         """Navigate to home screen."""

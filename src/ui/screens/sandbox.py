@@ -1,9 +1,9 @@
 """Screen for the containerized tmux sandbox."""
 
-import asyncio
 import os
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
 from textual.app import ComposeResult
@@ -277,6 +277,23 @@ class SandboxScreen(Screen):
         else:
             return f"bind {keybind} {command}"
 
+    def _is_prewarm_ready(self) -> bool:
+        """Check if a pre-warmed container is available and not already used."""
+        # Check if app has marked prewarm as used (dirty)
+        if not getattr(self.app, "_prewarm_ready", False):
+            return False
+
+        prewarm_name = getattr(self.app, "PREWARM_CONTAINER_NAME", "moobler-prewarm")
+        try:
+            container = self._container_manager.client.containers.get(prewarm_name)
+            return container.status == "running"
+        except Exception:
+            return False
+
+    def _mark_prewarm_used(self) -> None:
+        """Mark pre-warm as used so we don't try to use a dirty container."""
+        self.app._prewarm_ready = False
+
     def _build_sandbox_script(self, user_config: str | None, test_bindings: str) -> str:
         """Build a shell script that sets up and runs the sandbox."""
         # Build challenge display
@@ -324,7 +341,6 @@ echo ""
         # Build volume mounts for config
         mounts = ""
         setup_cmd = ""
-        import tempfile
 
         # Mount user's tmux.conf if it exists
         tmux_conf_path = Path.home() / ".tmux.conf"
@@ -374,13 +390,42 @@ echo ""
             # Show challenge on tmux startup
             setup_cmd += 'cat ~/CHALLENGE.txt && echo "Press Enter to start tmux..." && read && '
 
-        # The script will:
-        # 1. Clean up any stale container
-        # 2. Start the container with user's config mounted
-        # 3. Show challenge info
-        # 4. Attach to tmux in container
-        # 5. Clean up container on exit
-        script = f'''#!/bin/bash
+        # Check if pre-warmed container is available
+        use_prewarm = self._is_prewarm_ready()
+        prewarm_name = getattr(self.app, "PREWARM_CONTAINER_NAME", "moobler-prewarm")
+
+        if use_prewarm:
+            # Build setup command for pre-warmed container
+            prewarm_setup = ""
+
+            # Add test bindings to existing config
+            if self._test_bindings_file:
+                # Copy test bindings from host to container
+                prewarm_setup += f'docker cp "{self._test_bindings_file.name}" {prewarm_name}:/tmp/test.conf && '
+                prewarm_setup += f'docker exec {prewarm_name} bash -c \'echo "" >> ~/.tmux.conf && echo "# === NEW KEYBINDS TO TRY ===" >> ~/.tmux.conf && cat /tmp/test.conf >> ~/.tmux.conf\' && '
+
+            # Copy challenge file if present
+            if challenge_text and hasattr(self, '_challenge_file'):
+                prewarm_setup += f'docker cp "{self._challenge_file.name}" {prewarm_name}:/home/learner/CHALLENGE.txt && '
+
+            script = f'''#!/bin/bash
+{challenge_display}
+
+echo "Using pre-warmed container (fast startup)..."
+
+# Setup test bindings in pre-warmed container
+{prewarm_setup}
+
+# Attach to pre-warmed container and start tmux
+docker exec -it -e TERM=xterm-256color {prewarm_name} bash -c 'cat ~/CHALLENGE.txt 2>/dev/null; echo "Press Enter to start tmux..."; read; tmux new-session -s sandbox'
+
+echo ""
+echo "Sandbox exited. Press Enter to close..."
+read
+'''
+        else:
+            # Cold start - need to run new container
+            script = f'''#!/bin/bash
 {challenge_display}
 
 # Clean up any stale container first
@@ -409,18 +454,22 @@ read
             return False
 
         try:
+            use_prewarm = self._is_prewarm_ready()
             script = self._build_sandbox_script(user_config, test_bindings)
 
-            # Launch kitty with the script
+            # Launch kitty fullscreen with the script
             subprocess.Popen([
-                "kitty", "--hold", "--title", "tmux-learn sandbox",
+                "kitty", "--start-as=fullscreen", "--title", "moobler sandbox",
                 "bash", "-c", script
             ])
 
             self._log("")
-            self._log("Opened sandbox in new Kitty window")
+            if use_prewarm:
+                self._log("Opened sandbox in new Kitty window (pre-warmed - instant!)")
+            else:
+                self._log("Opened sandbox in new Kitty window")
             self._log("Switch to that window to practice")
-            self._log("Exit tmux (type 'exit') when done - container auto-cleans")
+            self._log("Exit tmux (type 'exit') when done")
             return True
 
         except Exception as e:
@@ -475,6 +524,7 @@ read
                     return
 
             # Launch sandbox in Kitty (self-contained - starts container, attaches, cleans up)
+            used_prewarm = self._is_prewarm_ready()
             if self._launch_sandbox_kitty(user_config, test_bindings):
                 self._update_status("Sandbox launched in Kitty")
                 if self._keybind_to_try:
@@ -485,6 +535,11 @@ read
                 self._log("The Kitty window handles everything:")
                 self._log("  - Container starts automatically")
                 self._log("  - Exit tmux to stop and clean up")
+
+                # If we used pre-warmed container, mark it as used (dirty)
+                # so subsequent launches use cold start instead
+                if used_prewarm:
+                    self._mark_prewarm_used()
             else:
                 # Fallback: show manual instructions
                 self._log("")
