@@ -1,9 +1,10 @@
 import Docker from "dockerode";
 import { homedir } from "os";
-import { join } from "path";
+import { join, dirname } from "path";
 import { tmpdir } from "os";
 import { writeFile, unlink } from "fs/promises";
 import { platform } from "os";
+import { fileURLToPath } from "url";
 
 export type TerminalType = "kitty" | "ghostty" | "iterm2" | "gnome-terminal" | "unknown";
 
@@ -141,6 +142,55 @@ export interface KeybindToTry {
 export interface LaunchOptions {
   keybinds?: KeybindToTry[];
   description?: string;
+}
+
+export interface OverlayResult {
+  completed: boolean;  // true if user completed all keybinds
+  escaped: boolean;    // true if user pressed escape
+  error?: string;      // error message if something went wrong
+}
+
+/**
+ * Launch the keybind practice overlay
+ * Returns when the overlay closes
+ */
+export async function launchOverlay(keybinds: KeybindToTry[]): Promise<OverlayResult> {
+  if (!keybinds || keybinds.length === 0) {
+    return { completed: true, escaped: false };
+  }
+
+  // Build sequence JSON for the overlay
+  const sequence = keybinds.map(kb => ({
+    key: kb.keybind,
+    description: kb.description,
+  }));
+
+  // Get path to overlay script
+  const scriptDir = join(import.meta.dir, "../../scripts/overlay");
+
+  try {
+    const proc = Bun.spawn(
+      ["python3", "-m", "scripts.overlay.main", "--sequence", JSON.stringify(sequence)],
+      {
+        cwd: join(import.meta.dir, "../.."),
+        stdin: "inherit",
+        stdout: "inherit",
+        stderr: "inherit",
+      }
+    );
+
+    const exitCode = await proc.exited;
+
+    if (exitCode === 0) {
+      return { completed: true, escaped: false };
+    } else if (exitCode === 1) {
+      return { completed: false, escaped: true };
+    } else {
+      return { completed: false, escaped: false, error: `Overlay exited with code ${exitCode}` };
+    }
+  } catch (e: any) {
+    return { completed: false, escaped: false, error: e.message };
+  }
 }
 
 export async function launchSandbox(options: LaunchOptions): Promise<{ success: boolean; terminal?: string }> {

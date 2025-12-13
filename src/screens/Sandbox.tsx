@@ -6,6 +6,7 @@ import {
   isImageBuilt,
   buildImage,
   launchSandbox,
+  launchOverlay,
 } from "../lib/docker.js";
 
 interface Props {
@@ -64,6 +65,28 @@ export function SandboxScreen({ keybindsToTry, notify }: Props) {
       setBuilding(false);
     }
 
+    // Launch overlay for guided keybind practice first
+    if (keybindsToTry && keybindsToTry.keybinds.length > 0) {
+      setStatus("Starting keybind practice...");
+      log("Launching overlay for guided practice...");
+
+      const overlayResult = await launchOverlay(keybindsToTry.keybinds);
+
+      if (overlayResult.escaped) {
+        setStatus("Practice cancelled");
+        log("User pressed Escape - skipping sandbox");
+        return;
+      }
+
+      if (overlayResult.error) {
+        log(`Overlay error: ${overlayResult.error}`);
+        // Continue to sandbox anyway
+      } else if (overlayResult.completed) {
+        log("Keybind practice complete!");
+      }
+    }
+
+    // Now launch the sandbox for free practice
     setStatus("Launching sandbox...");
     log("Launching in Kitty...");
 
