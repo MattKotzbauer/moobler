@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { readTmuxConfig, type UserStyle } from "./config.js";
+import { readTmuxConfig, parseTmuxConfig, type UserStyle } from "./config.js";
 import { scrapeGitHubConfigs } from "./github.js";
 import { join } from "path";
 
@@ -63,6 +63,34 @@ function sanitizeCommand(command: string): string {
 }
 
 /**
+ * Extract all keybinds from user's config to check for conflicts
+ */
+function extractExistingKeys(configContent: string): Set<string> {
+  const parsed = parseTmuxConfig(configContent);
+  const keys = new Set<string>();
+
+  for (const binding of parsed.keybindings) {
+    // Normalize key format
+    const key = binding.key.trim();
+    keys.add(key);
+    keys.add(key.toLowerCase());
+    keys.add(key.toUpperCase());
+  }
+
+  return keys;
+}
+
+/**
+ * Check if a suggested keybind conflicts with existing config
+ */
+function conflictsWithExisting(keybind: string, existingKeys: Set<string>): boolean {
+  const normalized = keybind.trim();
+  return existingKeys.has(normalized) ||
+         existingKeys.has(normalized.toLowerCase()) ||
+         existingKeys.has(normalized.toUpperCase());
+}
+
+/**
  * Validate that a keybind looks syntactically correct
  */
 function isValidKeybind(kb: { keybind: string; command: string }): boolean {
@@ -113,6 +141,10 @@ export async function getAISuggestions(
 
   // Read user's config
   const userConfig = await readTmuxConfig();
+
+  // Extract existing keys to filter conflicts later
+  const existingKeys = extractExistingKeys(userConfig);
+  onProgress?.(`Found ${existingKeys.size / 3} existing keybinds...`); // Divided by 3 because we add 3 variants
 
   onProgress?.("Scraping GitHub configs for inspiration...");
 
@@ -197,9 +229,12 @@ export async function getAISuggestions(
         }
       : null;
 
+    let totalSuggested = 0;
+    let totalFiltered = 0;
+
     const groups: KeybindGroup[] = (data.groups || []).map((g: any) => {
       // Sanitize and validate keybinds
-      const sanitizedKeybinds = (g.keybinds || [])
+      const allKeybinds = (g.keybinds || [])
         .map((kb: any) => ({
           keybind: sanitizeKeybind(kb.keybind || ""),
           command: sanitizeCommand(kb.command || ""),
@@ -207,14 +242,26 @@ export async function getAISuggestions(
         }))
         .filter(isValidKeybind);
 
+      totalSuggested += allKeybinds.length;
+
+      // Filter out conflicts with existing config
+      const nonConflicting = allKeybinds.filter(
+        (kb: KeybindSuggestion) => !conflictsWithExisting(kb.keybind, existingKeys)
+      );
+
+      totalFiltered += allKeybinds.length - nonConflicting.length;
+
       return {
         name: g.name || "Suggestions",
         description: g.description || "",
-        keybinds: sanitizedKeybinds,
+        keybinds: nonConflicting,
         reasoning: g.reasoning || "",
       };
     }).filter(g => g.keybinds.length > 0);  // Remove empty groups
 
+    if (totalFiltered > 0) {
+      onProgress?.(`Filtered ${totalFiltered} conflicting keybinds`);
+    }
     onProgress?.("Done!");
     return { styleAnalysis, groups };
   } catch {
