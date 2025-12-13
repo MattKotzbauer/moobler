@@ -41,7 +41,6 @@ export function DiscoverScreen({
   const [progress, setProgress] = useState("");
   const [result, setResult] = useState<SuggestionResult | null>(null);
   const [selectedGroup, setSelectedGroup] = useState(0);
-  const [selectedKeybind, setSelectedKeybind] = useState(0);
   const [panel, setPanel] = useState<"categories" | "suggestions">("categories");
   const [category, setCategory] = useState("");
 
@@ -54,12 +53,10 @@ export function DiscoverScreen({
   }, [prefetchedResult]);
 
   const fetchSuggestions = async (cat: string) => {
-    // If selecting "All" and we have prefetched, just use it
     if (cat === "" && prefetchedResult) {
       setResult(prefetchedResult);
       setPanel("suggestions");
       setSelectedGroup(0);
-      setSelectedKeybind(0);
       notify(`Using pre-fetched suggestions!`);
       return;
     }
@@ -74,7 +71,6 @@ export function DiscoverScreen({
       setResult(suggestions);
       setPanel("suggestions");
       setSelectedGroup(0);
-      setSelectedKeybind(0);
       notify(`Found ${suggestions.groups.length} groups!`);
     } catch (e: any) {
       notify(`Error: ${e.message}`);
@@ -86,34 +82,27 @@ export function DiscoverScreen({
 
   useInput((input, key) => {
     if (panel === "suggestions" && result) {
-      const group = result.groups[selectedGroup];
-      const keybinds = group?.keybinds || [];
-
       if (input === "h") {
         setPanel("categories");
       } else if (input === "j" || key.downArrow) {
-        if (selectedKeybind < keybinds.length - 1) {
-          setSelectedKeybind((k) => k + 1);
-        } else if (selectedGroup < result.groups.length - 1) {
+        if (selectedGroup < result.groups.length - 1) {
           setSelectedGroup((g) => g + 1);
-          setSelectedKeybind(0);
         }
       } else if (input === "k" || key.upArrow) {
-        if (selectedKeybind > 0) {
-          setSelectedKeybind((k) => k - 1);
-        } else if (selectedGroup > 0) {
+        if (selectedGroup > 0) {
           setSelectedGroup((g) => g - 1);
-          const prevGroup = result.groups[selectedGroup - 1];
-          setSelectedKeybind((prevGroup?.keybinds?.length || 1) - 1);
         }
       } else if (input === "t" || key.return) {
-        const kb = keybinds[selectedKeybind];
-        if (kb) {
-          tryKeybind({
-            keybind: kb.keybind,
-            command: kb.command,
-            description: kb.description,
-          });
+        // Send the entire group to sandbox
+        const group = result.groups[selectedGroup];
+        if (group && group.keybinds.length > 0) {
+          // Combine all keybinds in group
+          const combined = {
+            keybind: group.keybinds.map(kb => kb.keybind).join(", "),
+            command: group.keybinds.map(kb => `${kb.keybind}: ${kb.command}`).join("\n"),
+            description: group.name + ": " + group.keybinds.map(kb => kb.description).join(", "),
+          };
+          tryKeybind(combined);
         }
       }
     } else if (input === "l" && !loading && !prefetchLoading) {
@@ -125,7 +114,6 @@ export function DiscoverScreen({
     }
   });
 
-  // Determine what loading state to show
   const isLoading = loading || (prefetchLoading && !result);
   const currentProgress = loading ? progress : prefetchProgress;
 
@@ -171,7 +159,6 @@ export function DiscoverScreen({
                 <Spinner type="dots" />
                 <Text color="yellow"> {currentProgress}</Text>
               </Box>
-              {/* Show progress as greyed out thinking text */}
               <Box marginTop={1} paddingX={1}>
                 <Text color="gray" dimColor>
                   {currentProgress.includes("Generating")
@@ -188,15 +175,8 @@ export function DiscoverScreen({
             <Box flexDirection="column" marginTop={1}>
               {/* Style Analysis */}
               {result.styleAnalysis && (
-                <Box
-                  borderStyle="single"
-                  borderColor="blue"
-                  paddingX={1}
-                  marginBottom={1}
-                >
-                  <Text color="cyan" bold>
-                    Your Style:{" "}
-                  </Text>
+                <Box borderStyle="single" borderColor="blue" paddingX={1} marginBottom={1}>
+                  <Text color="cyan" bold>Your Style: </Text>
                   <Text>
                     {result.styleAnalysis.prefixPreference},{" "}
                     {result.styleAnalysis.modifierPreference},{" "}
@@ -205,46 +185,33 @@ export function DiscoverScreen({
                 </Box>
               )}
 
-              {/* Groups */}
-              {result.groups.map((group, gi) => (
-                <Box key={gi} flexDirection="column" marginBottom={1}>
+              {/* Groups - each group is a selectable unit */}
+              {result.groups.map((group, gi) => {
+                const isSelected = gi === selectedGroup;
+                return (
                   <Box
-                    backgroundColor={gi === selectedGroup ? "blue" : undefined}
+                    key={gi}
+                    flexDirection="column"
+                    marginBottom={1}
+                    borderStyle={isSelected ? "double" : "single"}
+                    borderColor={isSelected ? "cyanBright" : "gray"}
                     paddingX={1}
                   >
-                    <Text bold color={gi === selectedGroup ? "white" : "green"}>
-                      {group.name}
-                    </Text>
-                  </Box>
-                  <Text color="gray" wrap="wrap">
-                    {group.description}
-                  </Text>
+                    <Text bold color="green">{group.name}</Text>
+                    <Text color="gray" wrap="wrap">{group.description}</Text>
 
-                  {/* Keybinds in group */}
-                  {group.keybinds.map((kb, ki) => {
-                    const isSelected = gi === selectedGroup && ki === selectedKeybind;
-                    return (
-                      <Box
-                        key={ki}
-                        paddingX={1}
-                        backgroundColor={isSelected ? "blue" : undefined}
-                      >
-                        <Text
-                          color={isSelected ? "white" : "yellow"}
-                          bold
-                        >
-                          {kb.keybind}
-                        </Text>
-                        <Text color={isSelected ? "white" : undefined}>
-                          {" "}- {kb.description}
-                        </Text>
+                    {/* All keybinds in this group */}
+                    {group.keybinds.map((kb, ki) => (
+                      <Box key={ki}>
+                        <Text color="yellow" bold>{kb.keybind}</Text>
+                        <Text> - {kb.description}</Text>
                       </Box>
-                    );
-                  })}
-                </Box>
-              ))}
+                    ))}
+                  </Box>
+                );
+              })}
 
-              <Text color="gray">(t) Try selected, (h) back to categories</Text>
+              <Text color="gray">(j/k) navigate groups, (t) try group in sandbox, (h) back</Text>
             </Box>
           ) : (
             <Text color="gray">Select a category and press Enter or (s)</Text>

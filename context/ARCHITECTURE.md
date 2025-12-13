@@ -1,165 +1,72 @@
 # Architecture
 
+## Tech Stack
+- **Runtime**: Bun 1.0+
+- **Language**: TypeScript
+- **TUI**: Ink (React for CLI)
+- **AI**: Claude API with streaming
+- **Containers**: Docker + dockerode
+
 ## Directory Structure
 ```
 moobler/
-├── package.json            # Bun config, dependencies, scripts
-├── tsconfig.json           # TypeScript config (ESNext, React JSX)
-├── bun.lockb               # Bun lockfile
+├── package.json
+├── tsconfig.json
 ├── src/
-│   ├── index.tsx           # Entry point, fullscreen setup
-│   ├── app.tsx             # Main App component, routing
+│   ├── index.tsx           # Entry point, fullscreen alt-buffer
+│   ├── app.tsx             # Main App, routing, pre-fetch suggestions
 │   ├── screens/
-│   │   ├── Home.tsx        # Welcome, moobler art, menu
-│   │   ├── Config.tsx      # View config, style analysis
-│   │   ├── Discover.tsx    # AI suggestions browser
-│   │   └── Sandbox.tsx     # Docker sandbox UI
-│   └── lib/
-│       ├── config.ts       # tmux.conf parsing
-│       ├── ai.ts           # Claude API integration
-│       ├── github.ts       # GitHub scraper
-│       └── docker.ts       # Docker management
+│   │   ├── Home.tsx        # ASCII art, menu
+│   │   ├── Config.tsx      # View tmux config
+│   │   ├── Discover.tsx    # AI suggestions (grouped keybinds)
+│   │   └── Sandbox.tsx     # Docker sandbox
+│   ├── lib/
+│   │   ├── ai.ts           # Claude API, streaming progress
+│   │   ├── config.ts       # tmux.conf parser
+│   │   ├── docker.ts       # Container management
+│   │   └── github.ts       # GitHub scraper
+│   └── prompts/
+│       ├── suggestions-system.txt
+│       ├── suggestions-user.txt
+│       └── challenge.txt
 ├── docker/
-│   ├── Dockerfile          # Ubuntu + tmux sandbox image
-│   └── entrypoint.sh       # Container setup script
-├── data/
-│   └── curated_tips.json   # Static tips database
-└── context/                # Project documentation
+│   ├── Dockerfile
+│   └── entrypoint.sh
+└── context/                # This folder
 ```
 
-## Data Flow
+## Key Data Types
 
-### Config Parsing
-```
-~/.tmux.conf → lib/config.ts → TmuxConfig {
-    keybindings: Keybinding[],
-    style: UserStyle {
-        prefixPreference: "no-prefix" | "prefix-based" | "mixed",
-        modifierPreference: "Alt/Meta" | "Ctrl" | "mixed",
-        navigationStyle: "vim" | "arrows" | "other",
-        keysInUse: string[]
-    },
-    raw: string
-}
-```
-
-### AI Suggestion Generation
-```
-User's ~/.tmux.conf
-       ↓
-lib/ai.ts → getAISuggestions(category)
-       ↓
-1. Read user config, analyze style
-2. Scrape GitHub configs for inspiration
-3. Send to Claude with style-aware prompt
-4. Parse response into KeybindGroup[]
-       ↓
-SuggestionResult {
-    styleAnalysis: { prefixPreference, modifierPreference, ... },
-    groups: KeybindGroup[]
-}
-```
-
-### Sandbox Flow
-```
-Discover.tsx → tryKeybind(kb)
-       ↓
-Set keybindToTry in App state
-       ↓
-Switch to Sandbox.tsx
-       ↓
-User presses 's' → launchSandbox()
-       ↓
-1. Write test binding to temp file
-2. Build shell script with Docker run command
-3. Launch Kitty with fullscreen script
-       ↓
-User practices in container tmux
-       ↓
-Exit tmux → Kitty closes → back to moobler
-```
-
-## Key Interfaces
-
-### TmuxConfig (lib/config.ts)
 ```typescript
-interface TmuxConfig {
-    keybindings: Keybinding[];
-    style: UserStyle;
-    raw: string;
-}
-
-interface Keybinding {
-    key: string;
-    command: string;
-    mode: "prefix" | "root";
-    raw: string;
-}
-
-interface UserStyle {
-    prefixPreference: "no-prefix" | "prefix-based" | "mixed";
-    modifierPreference: "Alt/Meta" | "Ctrl" | "mixed";
-    navigationStyle: "vim" | "arrows" | "other";
-    keysInUse: string[];
-}
-```
-
-### AI Types (lib/ai.ts)
-```typescript
+// A group of related keybinds (e.g., all 4 resize directions)
 interface KeybindGroup {
-    name: string;
-    description: string;
-    keybinds: KeybindSuggestion[];
-    reasoning: string;
+  name: string;           // "Pane Resize"
+  description: string;    // "Resize panes with vim keys"
+  keybinds: KeybindSuggestion[];  // All related keybinds
+  reasoning: string;      // Why grouped together
 }
 
 interface SuggestionResult {
-    styleAnalysis: { ... } | null;
-    groups: KeybindGroup[];
+  styleAnalysis: { ... } | null;
+  groups: KeybindGroup[];  // Groups are the selectable units
 }
 ```
 
-## Key Components
+## Key Flows
 
-### App (app.tsx)
-- Main component, manages screen state
-- Global keybindings (1-4 for screens, q to quit)
-- Passes notify() and tryKeybind() to children
-- Triggers container prewarm on mount
+### App Startup
+1. Enter alt-screen buffer (fullscreen)
+2. Start Docker prewarm
+3. Start AI prefetch (getAISuggestions with streaming progress)
+4. Show Home screen
 
-### DiscoverScreen (screens/Discover.tsx)
-- Two-panel layout: categories (left), suggestions (right)
-- Calls getAISuggestions() on category select
-- Displays style analysis and grouped suggestions
-- t key triggers sandbox with selected keybind
+### Discover Screen
+- Left panel: categories
+- Right panel: AI suggestions grouped by functionality
+- Selection should be per-GROUP (not per-keybind)
+- Pressing 't' sends entire group to sandbox
 
-### SandboxScreen (screens/Sandbox.tsx)
-- Shows Docker status, selected keybind, challenge
-- s key launches Kitty with Docker sandbox
-- Generates AI challenge for keybind practice
-
-### lib/docker.ts
-- prewarmContainer(): Start container on app launch
-- launchSandbox(): Build script, launch in Kitty
-- cleanupPrewarm(): Remove container on exit
-
-## Fullscreen Mode
-
-The app uses the terminal's alternate screen buffer:
-```typescript
-// Enter alternate screen (index.tsx)
-process.stdout.write("\x1b[?1049h");  // Enter
-process.stdout.write("\x1b[2J");       // Clear
-process.stdout.write("\x1b[H");        // Cursor home
-
-// Exit alternate screen (on quit)
-process.stdout.write("\x1b[?1049l");
-```
-
-This provides a clean, fullscreen experience like vim/htop.
-
-## Environment
-- Bun 1.0+ (JavaScript/TypeScript runtime)
-- Docker (for sandbox containers)
-- Kitty terminal (for fullscreen sandbox)
-- ANTHROPIC_API_KEY in environment
+### Sandbox
+- Launches Kitty terminal with Docker container
+- Mounts user's tmux.conf + test bindings
+- All keybinds in a group are added together
