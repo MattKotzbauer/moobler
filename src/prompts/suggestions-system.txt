@@ -29,8 +29,8 @@ Your suggestions MUST:
 - NOT conflict with their existing bindings
 - NOT conflict with universal terminal keys (C-c, C-d, C-z, C-s, C-q, C-l, C-a)
 
-CRITICAL: If the user's config shows they avoid the prefix key and use Alt/Meta bindings
-instead, DO NOT suggest prefix bindings. Suggest Alt/Meta bindings that complement their setup.
+CRITICAL: If the user's config shows they avoid the prefix key and use other bindings
+instead, DO NOT suggest prefix bindings. Suggest the other bindings that complement their setup.
 
 STEP 3 - GROUP LOGICALLY:
 - Group related keybindings (e.g., all 4 resize directions together)
