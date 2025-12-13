@@ -13,10 +13,9 @@ export function App() {
   const { exit } = useApp();
   const [screen, setScreen] = useState<Screen>("home");
   const [notification, setNotification] = useState<string | null>(null);
-  const [keybindToTry, setKeybindToTry] = useState<{
-    keybind: string;
-    command: string;
-    description: string;
+  const [keybindsToTry, setKeybindsToTry] = useState<{
+    keybinds: { keybind: string; command: string; description: string }[];
+    groupName: string;
   } | null>(null);
 
   // Pre-fetched suggestions state
@@ -76,8 +75,8 @@ export function App() {
 
   const notify = (msg: string) => setNotification(msg);
 
-  const tryKeybind = (kb: { keybind: string; command: string; description: string }) => {
-    setKeybindToTry(kb);
+  const tryKeybinds = (keybinds: { keybind: string; command: string; description: string }[], groupName: string) => {
+    setKeybindsToTry({ keybinds, groupName });
     setScreen("sandbox");
   };
 
@@ -104,14 +103,14 @@ export function App() {
         {screen === "discover" && (
           <DiscoverScreen
             notify={notify}
-            tryKeybind={tryKeybind}
+            tryKeybinds={tryKeybinds}
             prefetchedResult={prefetchedResult}
             prefetchProgress={prefetchProgress}
             prefetchLoading={prefetchLoading}
           />
         )}
         {screen === "sandbox" && (
-          <SandboxScreen keybindToTry={keybindToTry} notify={notify} />
+          <SandboxScreen keybindsToTry={keybindsToTry} notify={notify} />
         )}
       </Box>
 

@@ -67,10 +67,17 @@ KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
 - For prefix bindings: just the key after prefix, e.g. "r" (user presses prefix then r)
 - For no-prefix bindings: include the modifier, e.g. "M-h" (Alt+h with no prefix)
 - NEVER write "prefix X" - that's documentation notation, not tmux syntax
-- NEVER add colons, spaces, or any extra characters after the keybind
-- Examples of CORRECT format: "M-h", "M-J", "r", "C-s", "|", "-", "Space"
-- Examples of WRONG format: "prefix r", "M-Space:", "M-h:", "Prefix+r"
-- For special keys use tmux names: "Space", "Enter", "Tab", "BSpace" (not "Backspace")
+- NEVER add colons (:) or any trailing punctuation to keybinds
+- The keybind field must contain ONLY the key sequence, nothing else
+
+CORRECT keybind examples: "M-h", "M-J", "M->", "r", "C-s", "|", "-", "Space"
+WRONG keybind examples (DO NOT USE):
+  - "M-Space:" (has colon - WRONG)
+  - "M->:" (has colon - WRONG)
+  - "prefix r" (uses prefix notation - WRONG)
+  - "Alt+h" (wrong modifier format - WRONG)
+
+For special keys use tmux names: "Space", "Enter", "Tab", "BSpace" (not "Backspace")
 
 Respond in JSON format with this structure:
 {

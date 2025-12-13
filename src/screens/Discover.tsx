@@ -10,11 +10,10 @@ import {
 
 interface Props {
   notify: (msg: string) => void;
-  tryKeybind: (kb: {
-    keybind: string;
-    command: string;
-    description: string;
-  }) => void;
+  tryKeybinds: (
+    keybinds: { keybind: string; command: string; description: string }[],
+    groupName: string
+  ) => void;
   prefetchedResult: SuggestionResult | null;
   prefetchProgress: string;
   prefetchLoading: boolean;
@@ -32,7 +31,7 @@ const CATEGORIES = [
 
 export function DiscoverScreen({
   notify,
-  tryKeybind,
+  tryKeybinds,
   prefetchedResult,
   prefetchProgress,
   prefetchLoading,
@@ -96,13 +95,7 @@ export function DiscoverScreen({
         // Send the entire group to sandbox
         const group = result.groups[selectedGroup];
         if (group && group.keybinds.length > 0) {
-          // Combine all keybinds in group
-          const combined = {
-            keybind: group.keybinds.map(kb => kb.keybind).join(", "),
-            command: group.keybinds.map(kb => `${kb.keybind}: ${kb.command}`).join("\n"),
-            description: group.name + ": " + group.keybinds.map(kb => kb.description).join(", "),
-          };
-          tryKeybind(combined);
+          tryKeybinds(group.keybinds, group.name);
         }
       }
     } else if (input === "l" && !loading && !prefetchLoading) {

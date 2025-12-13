@@ -7,26 +7,20 @@ import {
   buildImage,
   launchSandbox,
 } from "../lib/docker.js";
-import { generateChallenge } from "../lib/ai.js";
 
 interface Props {
-  keybindToTry: {
-    keybind: string;
-    command: string;
-    description: string;
+  keybindsToTry: {
+    keybinds: { keybind: string; command: string; description: string }[];
+    groupName: string;
   } | null;
   notify: (msg: string) => void;
 }
 
-export function SandboxScreen({ keybindToTry, notify }: Props) {
+export function SandboxScreen({ keybindsToTry, notify }: Props) {
   const [status, setStatus] = useState("Ready");
   const [dockerOk, setDockerOk] = useState<boolean | null>(null);
   const [imageBuilt, setImageBuilt] = useState<boolean | null>(null);
   const [building, setBuilding] = useState(false);
-  const [challenge, setChallenge] = useState<{
-    objective: string;
-    hint: string;
-  } | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
 
   const log = (msg: string) => setLogs((l) => [...l.slice(-10), msg]);
@@ -43,13 +37,10 @@ export function SandboxScreen({ keybindToTry, notify }: Props) {
   }, []);
 
   useEffect(() => {
-    if (keybindToTry) {
-      log(`Keybind to try: ${keybindToTry.keybind}`);
-      generateChallenge(keybindToTry.keybind, keybindToTry.command).then(
-        setChallenge
-      );
+    if (keybindsToTry) {
+      log(`Group: ${keybindsToTry.groupName} (${keybindsToTry.keybinds.length} keybinds)`);
     }
-  }, [keybindToTry]);
+  }, [keybindsToTry]);
 
   const handleStart = async () => {
     if (!dockerOk) {
@@ -74,23 +65,23 @@ export function SandboxScreen({ keybindToTry, notify }: Props) {
     }
 
     setStatus("Launching sandbox...");
-    log("Launching sandbox in Kitty...");
+    log("Launching in Kitty...");
 
-    const launched = await launchSandbox({
-      keybind: keybindToTry?.keybind,
-      command: keybindToTry?.command,
-      description: keybindToTry?.description,
+    const result = await launchSandbox({
+      keybinds: keybindsToTry?.keybinds,
+      description: keybindsToTry?.groupName,
     });
 
-    if (launched) {
-      setStatus("Sandbox launched in Kitty");
-      log("Sandbox opened in new Kitty window");
+    if (result.success && result.terminal) {
+      const termName = result.terminal.charAt(0).toUpperCase() + result.terminal.slice(1);
+      setStatus(`Sandbox launched in ${termName}`);
+      log(`Sandbox opened in new ${termName} window`);
       log("Exit tmux when done practicing");
     } else {
-      setStatus("Could not launch Kitty");
-      log("Kitty terminal not found");
-      log("Install kitty or run Docker manually");
-      notify("Kitty not found - install it for sandbox support");
+      setStatus("No supported terminal found");
+      log("Could not find Kitty terminal");
+      log("Install Kitty for sandbox support");
+      notify("Kitty not found for sandbox");
     }
   };
 
@@ -134,7 +125,7 @@ export function SandboxScreen({ keybindToTry, notify }: Props) {
         )}
       </Box>
 
-      {/* Keybind to try */}
+      {/* Keybinds to try */}
       <Box
         marginTop={1}
         borderStyle="single"
@@ -143,52 +134,29 @@ export function SandboxScreen({ keybindToTry, notify }: Props) {
         flexDirection="column"
       >
         <Text bold color="green">
-          Keybind to Try
+          Keybinds to Try
         </Text>
-        {keybindToTry ? (
+        {keybindsToTry ? (
           <>
             <Box>
-              <Text bold>Key: </Text>
-              <Text color="yellow">{keybindToTry.keybind}</Text>
+              <Text bold>Group: </Text>
+              <Text color="cyan">{keybindsToTry.groupName}</Text>
             </Box>
-            <Box>
-              <Text bold>Command: </Text>
-              <Text>{keybindToTry.command}</Text>
-            </Box>
-            <Box>
-              <Text bold>Description: </Text>
-              <Text color="gray">{keybindToTry.description}</Text>
+            <Box marginTop={1} flexDirection="column">
+              {keybindsToTry.keybinds.map((kb, i) => (
+                <Box key={i}>
+                  <Text color="yellow" bold>{kb.keybind.padEnd(10)}</Text>
+                  <Text color="gray"> {kb.description}</Text>
+                </Box>
+              ))}
             </Box>
           </>
         ) : (
           <Text color="gray">
-            None selected - go to Discover (3) to pick one
+            None selected - go to Discover (3) to pick a group
           </Text>
         )}
       </Box>
-
-      {/* Challenge */}
-      {challenge && (
-        <Box
-          marginTop={1}
-          borderStyle="single"
-          borderColor="cyan"
-          padding={1}
-          flexDirection="column"
-        >
-          <Text bold color="cyan">
-            Challenge
-          </Text>
-          <Box>
-            <Text bold>Objective: </Text>
-            <Text>{challenge.objective}</Text>
-          </Box>
-          <Box>
-            <Text bold>Hint: </Text>
-            <Text color="gray">{challenge.hint}</Text>
-          </Box>
-        </Box>
-      )}
 
       {/* Logs */}
       <Box marginTop={1} flexDirection="column">

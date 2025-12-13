@@ -40,6 +40,16 @@ function interpolate(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
 }
 
+/**
+ * Sanitize keybind string - AI sometimes adds trailing colons or spaces
+ */
+function sanitizeKeybind(keybind: string): string {
+  return keybind
+    .trim()
+    .replace(/:+$/, "")  // Remove trailing colons
+    .replace(/\s+$/, ""); // Remove trailing spaces
+}
+
 export async function getAISuggestions(
   category?: string,
   onProgress?: ProgressCallback
@@ -149,7 +159,10 @@ export async function getAISuggestions(
     const groups: KeybindGroup[] = (data.groups || []).map((g: any) => ({
       name: g.name || "Suggestions",
       description: g.description || "",
-      keybinds: g.keybinds || [],
+      keybinds: (g.keybinds || []).map((kb: any) => ({
+        ...kb,
+        keybind: sanitizeKeybind(kb.keybind || ""),
+      })),
       reasoning: g.reasoning || "",
     }));
 

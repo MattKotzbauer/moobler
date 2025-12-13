@@ -3,6 +3,45 @@ import { homedir } from "os";
 import { join } from "path";
 import { tmpdir } from "os";
 import { writeFile, unlink } from "fs/promises";
+import { platform } from "os";
+
+export type TerminalType = "kitty" | "ghostty" | "iterm2" | "gnome-terminal" | "unknown";
+
+/**
+ * Detect the current terminal emulator using environment variables
+ */
+export function detectTerminal(): TerminalType {
+  // Kitty sets KITTY_WINDOW_ID
+  if (process.env.KITTY_WINDOW_ID) {
+    return "kitty";
+  }
+
+  // Ghostty sets GHOSTTY_RESOURCES_DIR or TERM_PROGRAM=ghostty
+  if (process.env.GHOSTTY_RESOURCES_DIR || process.env.TERM_PROGRAM === "ghostty") {
+    return "ghostty";
+  }
+
+  // iTerm2 sets TERM_PROGRAM=iTerm.app or ITERM_SESSION_ID
+  if (process.env.TERM_PROGRAM === "iTerm.app" || process.env.ITERM_SESSION_ID) {
+    return "iterm2";
+  }
+
+  // GNOME Terminal sets GNOME_TERMINAL_SCREEN or VTE_VERSION
+  if (process.env.GNOME_TERMINAL_SCREEN || process.env.VTE_VERSION) {
+    return "gnome-terminal";
+  }
+
+  return "unknown";
+}
+
+/**
+ * Check if a terminal binary is available
+ */
+async function hasTerminal(name: string): Promise<boolean> {
+  const proc = Bun.spawn(["which", name]);
+  await proc.exited;
+  return proc.exitCode === 0;
+}
 
 const docker = new Docker();
 const IMAGE_NAME = "tmux-learn-sandbox";
@@ -93,20 +132,24 @@ export async function cleanupPrewarm(): Promise<void> {
   } catch {}
 }
 
+export interface KeybindToTry {
+  keybind: string;
+  command: string;
+  description: string;
+}
+
 export interface LaunchOptions {
-  keybind?: string;
-  command?: string;
+  keybinds?: KeybindToTry[];
   description?: string;
 }
 
-export async function launchSandbox(options: LaunchOptions): Promise<boolean> {
-  // Check for kitty terminal
-  const proc = Bun.spawn(["which", "kitty"]);
-  await proc.exited;
-  const hasKitty = proc.exitCode === 0;
+export async function launchSandbox(options: LaunchOptions): Promise<{ success: boolean; terminal?: string }> {
+  // WIP: Terminal auto-detection is work in progress
+  // For now, default to kitty
+  const terminal: TerminalType = "kitty";
 
-  if (!hasKitty) {
-    return false;
+  if (!(await hasTerminal("kitty"))) {
+    return { success: false };
   }
 
   // Build the sandbox script
@@ -120,28 +163,34 @@ export async function launchSandbox(options: LaunchOptions): Promise<boolean> {
     setupCmd += "cp /tmp/user.tmux.conf ~/.tmux.conf && ";
   } catch {}
 
-  // Create test binding if provided
-  if (options.keybind && options.command) {
-    const testBindings =
-      options.keybind.startsWith("M-") || options.keybind.startsWith("C-")
-        ? `bind -n ${options.keybind} ${options.command}`
-        : `bind ${options.keybind} ${options.command}`;
+  // Create test bindings if provided
+  if (options.keybinds && options.keybinds.length > 0) {
+    // Generate proper bind commands for each keybind
+    const bindLines = options.keybinds.map(kb => {
+      const isNoPrefix = kb.keybind.startsWith("M-") || kb.keybind.startsWith("C-");
+      return isNoPrefix
+        ? `bind -n ${kb.keybind} ${kb.command}`
+        : `bind ${kb.keybind} ${kb.command}`;
+    });
 
     const testFile = join(tmpdir(), "moobler-test.conf");
-    await writeFile(testFile, testBindings);
+    await writeFile(testFile, bindLines.join("\n"));
     mounts += `-v "${testFile}:/tmp/test.conf:ro" `;
     setupCmd +=
-      'echo "" >> ~/.tmux.conf && echo "# === NEW KEYBIND ===" >> ~/.tmux.conf && cat /tmp/test.conf >> ~/.tmux.conf && ';
+      'echo "" >> ~/.tmux.conf && echo "# === NEW KEYBINDS ===" >> ~/.tmux.conf && cat /tmp/test.conf >> ~/.tmux.conf && ';
   }
 
   // Create challenge info
   let challengeDisplay = "";
-  if (options.keybind) {
+  if (options.keybinds && options.keybinds.length > 0) {
+    const keybindList = options.keybinds
+      .map(kb => `  ${kb.keybind}: ${kb.description}`)
+      .join("\\n");
     challengeDisplay = `
 echo "=== PRACTICE ==="
-echo "Keybind: ${options.keybind}"
-echo "Command: ${options.command || ""}"
-echo "Description: ${options.description || ""}"
+echo "Group: ${options.description || "Keybinds"}"
+echo ""
+echo -e "${keybindList}"
 echo "================"
 echo ""
 `;
@@ -169,12 +218,13 @@ read
   const scriptFile = join(tmpdir(), "moobler-sandbox.sh");
   await writeFile(scriptFile, script, { mode: 0o755 });
 
-  // Launch in kitty
+  // WIP: Other terminals (ghostty, gnome-terminal, iterm2) support coming soon
+  // For now, just launch in kitty
   Bun.spawn(["kitty", "--start-as=fullscreen", "--title", "moobler sandbox", "bash", scriptFile], {
     stdin: "inherit",
     stdout: "inherit",
     stderr: "inherit",
   });
 
-  return true;
+  return { success: true, terminal };
 }
