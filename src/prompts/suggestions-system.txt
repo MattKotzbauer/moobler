@@ -32,9 +32,25 @@ Your suggestions MUST:
 CRITICAL: If the user's config shows they avoid the prefix key and use other bindings
 instead, DO NOT suggest prefix bindings. Suggest the other bindings that complement their setup.
 
-STEP 3 - GROUP LOGICALLY:
-- Group related keybindings (e.g., all 4 resize directions together)
-- Each group should be something to practice in one session
+STEP 3 - GROUP BY EXACT FUNCTIONAL SIMILARITY:
+
+CRITICAL: Create GRANULAR groups based on true similarity. Do NOT create broad categories!
+
+GOOD grouping examples:
+- "Resize Pane" - all 4 resize directions (left/right/up/down) = 1 group of 4
+- "Swap Pane" - swap with prev/next pane = 1 group of 2
+- "Rotate Panes" - rotate clockwise/counter-clockwise = 1 group of 2
+- "Equalize Panes" - if only 1 command, it stands ALONE as a group of 1
+
+BAD grouping (too broad):
+- "Pane Management" with resize + swap + rotate + zoom all mixed together
+- "Window Operations" with 6 unrelated window commands
+
+Rules:
+- Group ONLY keybinds that do the SAME operation with different directions/targets
+- A single unique command should be its OWN group (group of 1 is fine!)
+- Prefer many small focused groups over few large mixed groups
+- Each group = one cohesive thing to practice together
 
 KEYBIND FORMAT - USE EXACT TMUX SYNTAX:
 - For prefix bindings: just the key after prefix, e.g. "r" (user presses prefix then r)
@@ -64,4 +80,5 @@ Respond in JSON format with this structure:
   ]
 }
 
-Return 2-4 groups of suggestions that MATCH the user's established patterns.
+Return 4-10 small, focused groups that MATCH the user's established patterns.
+Prefer more smaller groups over fewer larger ones.
