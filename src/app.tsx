@@ -4,7 +4,7 @@ import { HomeScreen } from "./screens/Home.js";
 import { DiscoverScreen } from "./screens/Discover.js";
 import { SandboxScreen } from "./screens/Sandbox.js";
 import { ConfigScreen } from "./screens/Config.js";
-import { prewarmContainer } from "./lib/docker.js";
+import { prewarmContainer, cleanupPrewarm } from "./lib/docker.js";
 
 type Screen = "home" | "config" | "discover" | "sandbox";
 
@@ -33,8 +33,9 @@ export function App() {
 
   // Global keybindings
   useInput((input, key) => {
-    if (input === "q") {
-      exit();
+    if (input === "q" || (key.ctrl && input === "c")) {
+      cleanupPrewarm().finally(() => exit());
+      return;
     } else if (input === "1") {
       setScreen("home");
     } else if (input === "2") {
