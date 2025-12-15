@@ -2,14 +2,26 @@
 Parse tmux keybind notation to human-readable display format.
 """
 
+import sys
+
+# Detect if running on macOS
+IS_MACOS = sys.platform == "darwin"
+
+
 def parse_keybind(keybind: str) -> str:
     """
     Convert tmux keybind notation to display format.
 
-    Examples:
+    Examples (Linux/Ubuntu):
         M-H -> Alt + H
         C-a -> Ctrl + A
         M-{ -> Alt + {
+        Space -> Space
+
+    Examples (macOS):
+        M-H -> Option + H
+        C-a -> Ctrl + A
+        M-{ -> Option + {
         Space -> Space
     """
     result = keybind.strip()
@@ -18,8 +30,9 @@ def parse_keybind(keybind: str) -> str:
     parts = []
 
     # Check for Meta/Alt prefix
+    # On macOS, Alt is labeled "Option"
     if result.startswith("M-"):
-        parts.append("Alt")
+        parts.append("Option" if IS_MACOS else "Alt")
         result = result[2:]
     # Check for Ctrl prefix
     elif result.startswith("C-"):

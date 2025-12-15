@@ -1,11 +1,15 @@
 """
 Transparent overlay window using PySide6.
+Cross-platform support for Ubuntu/Linux and macOS.
 """
 
 import sys
 from PySide6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
-from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont, QColor, QPalette, QKeyEvent
+
+# Platform detection
+IS_MACOS = sys.platform == "darwin"
 
 
 class OverlaySignals(QObject):
@@ -51,9 +55,6 @@ class OverlayWindow(QMainWindow):
         if modifiers & Qt.KeyboardModifier.ShiftModifier:
             mods.add("shift")
 
-        # Get key name
-        key_text = event.text().lower() if event.text() else ""
-
         # Map special keys
         special_keys = {
             Qt.Key.Key_Space: "space",
@@ -67,12 +68,22 @@ class OverlayWindow(QMainWindow):
             Qt.Key.Key_Right: "right",
         }
 
+        # Get key name - prioritize key code over text on macOS
+        # because Option+key generates special characters as text
+        key_text = ""
+
         if key in special_keys:
             key_text = special_keys[key]
-        elif not key_text:
-            # Try to get from key code for letters
-            if Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
-                key_text = chr(key).lower()
+        elif Qt.Key.Key_A <= key <= Qt.Key.Key_Z:
+            # For letter keys, use the key code directly
+            # This avoids macOS Option+key special character issue
+            key_text = chr(key).lower()
+        elif Qt.Key.Key_0 <= key <= Qt.Key.Key_9:
+            # For number keys
+            key_text = chr(key)
+        elif event.text():
+            # Fall back to text for other keys (symbols, etc.)
+            key_text = event.text().lower()
 
         if key_text:
             self.signals.key_pressed.emit(key_text, list(mods))
@@ -80,15 +91,28 @@ class OverlayWindow(QMainWindow):
     def _setup_window(self):
         """Configure window for transparent fullscreen overlay."""
         # Window flags for transparent overlay
-        # Note: NOT using X11BypassWindowManagerHint so we can receive keyboard focus
-        self.setWindowFlags(
+        # Works on both Ubuntu/Linux and macOS
+        window_flags = (
             Qt.WindowType.FramelessWindowHint |      # No window decorations
-            Qt.WindowType.WindowStaysOnTopHint |     # Always on top
-            Qt.WindowType.Tool                       # Don't show in taskbar
+            Qt.WindowType.WindowStaysOnTopHint       # Always on top
         )
 
-        # Enable transparency
+        if IS_MACOS:
+            # On macOS, use Tool to avoid showing in Dock
+            # Also helps with staying on top of fullscreen apps
+            window_flags |= Qt.WindowType.Tool
+        else:
+            # On Linux, Tool flag also keeps it off the taskbar
+            window_flags |= Qt.WindowType.Tool
+
+        self.setWindowFlags(window_flags)
+
+        # Enable transparency - required for both platforms
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+        if IS_MACOS:
+            # macOS-specific: Ensure window can become key window for keyboard input
+            self.setAttribute(Qt.WidgetAttribute.WA_MacAlwaysShowToolWindow, True)
 
         # Fullscreen
         screen = QApplication.primaryScreen().geometry()
@@ -100,6 +124,17 @@ class OverlayWindow(QMainWindow):
     def showEvent(self, event):
         """Ensure we grab keyboard focus when shown."""
         super().showEvent(event)
+        self.activateWindow()
+        self.raise_()
+        self.setFocus()
+
+        if IS_MACOS:
+            # On macOS, we may need to delay activation slightly
+            # to ensure the window is fully visible before grabbing focus
+            QTimer.singleShot(100, self._ensure_focus)
+
+    def _ensure_focus(self):
+        """Re-attempt to grab keyboard focus (used on macOS)."""
         self.activateWindow()
         self.raise_()
         self.setFocus()
@@ -116,14 +151,15 @@ class OverlayWindow(QMainWindow):
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Keybind display (large, stylized text)
-        self.keybind_label = QLabel("Alt + H")
+        default_keybind = "Option + H" if IS_MACOS else "Alt + H"
+        self.keybind_label = QLabel(default_keybind)
         self.keybind_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.keybind_label.setStyleSheet("""
             QLabel {
                 color: #00ffff;
                 font-size: 96px;
                 font-weight: bold;
-                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
                 padding: 40px 80px;
                 border: 4px solid #00ffff;
                 border-radius: 20px;
@@ -142,7 +178,7 @@ class OverlayWindow(QMainWindow):
             QLabel {
                 color: #ffffff;
                 font-size: 24px;
-                font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', monospace;
             }
         """)
         layout.addWidget(self.progress_label)
@@ -154,7 +190,7 @@ class OverlayWindow(QMainWindow):
             QLabel {
                 color: #aaaaaa;
                 font-size: 20px;
-                font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', monospace;
             }
         """)
         layout.addWidget(self.description_label)
@@ -169,7 +205,7 @@ class OverlayWindow(QMainWindow):
             QLabel {
                 color: #666666;
                 font-size: 16px;
-                font-family: 'JetBrains Mono', 'Fira Code', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', monospace;
             }
         """)
         layout.addWidget(self.hint_label)
@@ -186,7 +222,7 @@ class OverlayWindow(QMainWindow):
                 color: #00ffff;
                 font-size: 96px;
                 font-weight: bold;
-                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
                 padding: 40px 80px;
                 border: 4px solid #00ffff;
                 border-radius: 20px;
@@ -201,7 +237,7 @@ class OverlayWindow(QMainWindow):
                 color: #00ff00;
                 font-size: 96px;
                 font-weight: bold;
-                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
                 padding: 40px 80px;
                 border: 4px solid #00ff00;
                 border-radius: 20px;
@@ -216,7 +252,7 @@ class OverlayWindow(QMainWindow):
                 color: #ff4444;
                 font-size: 96px;
                 font-weight: bold;
-                font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+                font-family: 'Menlo', 'Monaco', 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
                 padding: 40px 80px;
                 border: 4px solid #ff4444;
                 border-radius: 20px;

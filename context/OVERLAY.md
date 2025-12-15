@@ -32,15 +32,18 @@ User enters Sandbox
 
 ## Technology Stack
 
-### Ubuntu (Current Implementation)
+### Ubuntu/Linux
 - **Window**: PySide6 (Qt) with frameless transparent window
-- **Keyboard**: pynput for global keyboard capture
+- **Keyboard**: Qt's native keyPressEvent for keyboard capture
 - **Text**: Qt's QLabel with custom font styling
+- **Display**: Shows "Alt" for Meta modifier keys
 
-### macOS (Future)
-- Same stack (PySide6 + pynput work on macOS)
-- Need to handle accessibility permissions
-- May need to whitelist app in System Preferences → Security → Accessibility
+### macOS
+- **Window**: PySide6 (Qt) with frameless transparent window + macOS-specific attributes
+- **Keyboard**: Qt's native keyPressEvent (Option key maps to AltModifier)
+- **Text**: Qt's QLabel with custom font styling
+- **Display**: Shows "Option" for Meta modifier keys (macOS convention)
+- **Requirements**: May need to grant accessibility permissions in System Preferences → Security & Privacy → Privacy → Accessibility
 
 ## File Structure
 
@@ -174,18 +177,21 @@ uv pip install -r scripts/overlay/requirements.txt
 ### Ubuntu/X11
 - Works natively with X11
 - May need `$DISPLAY` environment variable set
-- Full keyboard grab works
+- Uses Qt's native keyboard handling
 
 ### Ubuntu/Wayland
 - Limited support via Xwayland
 - May only capture from X11 apps
 - Consider forcing X11 session for full functionality
 
-### macOS (Future)
-- Need to grant accessibility permissions
-- System Preferences → Security & Privacy → Accessibility
-- Add terminal/app to allowed list
-- Some modifier combinations (Ctrl+Alt) may not work with pynput
+### macOS
+- **Supported** - Uses PySide6 with macOS-specific window attributes
+- Option key (⌥) is used instead of Alt and displays as "Option"
+- May need to grant accessibility permissions:
+  - System Preferences → Security & Privacy → Privacy → Accessibility
+  - Add Terminal or the running application to allowed list
+- Window uses `WA_MacAlwaysShowToolWindow` attribute for proper keyboard focus
+- Works with both Intel and Apple Silicon Macs
 
 ## Testing
 
